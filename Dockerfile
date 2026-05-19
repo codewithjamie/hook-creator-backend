@@ -21,7 +21,7 @@ COPY tsconfig*.json ./
 COPY nest-cli.json ./
 
 # Install all deps (including devDeps for build)
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY src/ ./src/
@@ -30,7 +30,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Prune dev dependencies
-RUN npm prune --production
+RUN npm prune --production --legacy-peer-deps
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runtime

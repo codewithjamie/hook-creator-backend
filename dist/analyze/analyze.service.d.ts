@@ -1,0 +1,37 @@
+import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { AnalysisEntity } from './entities/analysis.entity';
+import { CreditsService } from '../credits/credits.service';
+import { UserEntity } from '../users/entities/user.entity';
+import { PlatformService } from './platform.service';
+import { VideoDownloaderService } from './video-downloader.service';
+import { FfmpegService } from './ffmpeg.service';
+import { CloudinaryService } from './cloudinary.service';
+import { TranscriptService } from './transcript.service';
+import { HookScoringService } from './hook-scoring.service';
+import { AnalyzeUrlDto, RebuildDto, ExtractClipDto, DetectPlatformResponse, AnalysisResponse, HookOnlyDto } from './dto/analyze.dto';
+export declare class AnalyzeService {
+    private readonly analyses;
+    private readonly users;
+    private readonly credits;
+    private readonly config;
+    private readonly platform;
+    private readonly downloader;
+    private readonly ffmpeg;
+    private readonly cloudinary;
+    private readonly transcript;
+    private readonly hookScoring;
+    private readonly logger;
+    private readonly minDuration;
+    private readonly maxDuration;
+    constructor(analyses: Repository<AnalysisEntity>, users: Repository<UserEntity>, credits: CreditsService, config: ConfigService, platform: PlatformService, downloader: VideoDownloaderService, ffmpeg: FfmpegService, cloudinary: CloudinaryService, transcript: TranscriptService, hookScoring: HookScoringService);
+    detectPlatform(url: string): DetectPlatformResponse;
+    analyzeUrl(userId: string, userEmail: string, dto: AnalyzeUrlDto): Promise<AnalysisResponse>;
+    analyzeUpload(userId: string, userEmail: string, file: Express.Multer.File, body: Record<string, string>): Promise<AnalysisResponse>;
+    rebuild(userId: string, userEmail: string, dto: RebuildDto): Promise<AnalysisResponse>;
+    extractClip(userId: string, userEmail: string, dto: ExtractClipDto): Promise<AnalysisResponse>;
+    hookOnly(userId: string, userEmail: string, dto: HookOnlyDto): Promise<AnalysisResponse>;
+    private findOwnedAnalysis;
+    private refundCredit;
+    private toResponse;
+}

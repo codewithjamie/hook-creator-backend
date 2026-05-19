@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictPropertyInitialization": false,
+    "paths": {
+      "@common/*": ["src/common/*"],
+      "@youtube/*": ["src/youtube/*"],
+      "@upload/*": ["src/upload/*"],
+      "@video-processing/*": ["src/video-processing/*"],
+      "@ai/*": ["src/ai/*"],
+      "@transcript/*": ["src/transcript/*"],
+      "@hooks/*": ["src/hooks/*"],
+      "@analyze/*": ["src/analyze/*"]
+    }
+  }
+}

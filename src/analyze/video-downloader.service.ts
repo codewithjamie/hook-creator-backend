@@ -19,13 +19,24 @@ export class VideoDownloaderService {
   }
 
   private writeCookies(): void {
-    const content = this.config.get<string>('YOUTUBE_COOKIES');
-    if (content) {
-      fs.writeFileSync(this.cookiesPath, content, 'utf8');
-      this.logger.log('YouTube cookies written to disk');
-    } else {
-      this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
+    // Try base64-encoded version first (recommended for env vars)
+    const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
+    if (b64) {
+      const decoded = Buffer.from(b64, 'base64').toString('utf8');
+      fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
+      this.logger.log('YouTube cookies written from base64 env var');
+      return;
     }
+
+    // Fallback: raw content
+    const raw = this.config.get<string>('YOUTUBE_COOKIES');
+    if (raw) {
+      fs.writeFileSync(this.cookiesPath, raw, 'utf8');
+      this.logger.log('YouTube cookies written from raw env var');
+      return;
+    }
+
+    this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
   }
 
   private get hasCookies(): boolean {
@@ -53,7 +64,7 @@ export class VideoDownloaderService {
     this.logger.log(`Download complete → ${outputPath}`);
     return outputPath;
   }
-  
+
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────
   private async resolveRumbleUrl(pageUrl: string): Promise<string> {
     this.logger.log(`Resolving Rumble oEmbed → ${pageUrl}`);

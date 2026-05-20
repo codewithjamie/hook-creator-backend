@@ -67,31 +67,34 @@ export class VideoDownloaderService {
   }
 
   private async resolveYouTubeUrl(url: string): Promise<string> {
-    this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
+  this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
 
-    const res = await fetch('https://api.cobalt.tools/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        videoQuality: '720',
-        filenameStyle: 'basic',
-      }),
-    });
+  const res = await fetch('https://api.cobalt.tools/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0',
+    },
+    body: JSON.stringify({
+      url,
+      quality: '720',
+      downloadMode: 'auto',
+      filenameStyle: 'basic',
+    }),
+  });
 
-    if (!res.ok) throw new Error(`Cobalt API returned ${res.status}`);
+  const raw = await res.text();
+  this.logger.log(`Cobalt raw response (${res.status}): ${raw.substring(0, 200)}`);
 
-    const data = await res.json() as { status: string; url?: string; tunnel?: string };
-    this.logger.log(`Cobalt response status: ${data.status}`);
+  if (!res.ok) throw new Error(`Cobalt API returned ${res.status}: ${raw}`);
 
-    const videoUrl = data.url ?? data.tunnel;
-    if (!videoUrl) throw new Error(`No URL in Cobalt response: ${JSON.stringify(data)}`);
+  const data = JSON.parse(raw) as { status: string; url?: string; tunnel?: string };
+  const videoUrl = data.url ?? data.tunnel;
+  if (!videoUrl) throw new Error(`No URL in Cobalt response: ${raw}`);
 
-    return videoUrl;
-  }
+  return videoUrl;
+}
 
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────
   private async resolveRumbleUrl(pageUrl: string): Promise<string> {

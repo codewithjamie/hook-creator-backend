@@ -17,19 +17,103 @@ export interface TranscriptResult {
 
 type CaptionItem = { text: string; offset: number; duration: number };
 
+interface SupadataSegment {
+  text: string;
+  offset: number;
+  duration: number;
+  lang?: string;
+}
+
+interface SupadataResponse {
+  content: SupadataSegment[] | string;
+  lang?: string;
+  availableLangs?: string[];
+}
+
 @Injectable()
 export class TranscriptService {
   private readonly logger = new Logger(TranscriptService.name);
   private readonly openai: OpenAI;
+  private readonly supadataKey: string | null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly ffmpeg: FfmpegService,
   ) {
     this.openai = new OpenAI({ apiKey: config.getOrThrow<string>('OPENAI_API_KEY') });
+    this.supadataKey = config.get<string>('SUPADATA_API_KEY') ?? null;
+
+    if (this.supadataKey) {
+      this.logger.log('Supadata API configured ✅');
+    } else {
+      this.logger.warn('SUPADATA_API_KEY not set — falling back to youtube-transcript library');
+    }
   }
 
   async fromYoutube(videoId: string): Promise<TranscriptResult | null> {
+    // ── 1. Try Supadata first (most reliable, no IP issues) ──────────────────
+    if (this.supadataKey) {
+      const result = await this.fromSupadata(videoId);
+      if (result) return result;
+    }
+
+    // ── 2. Fall back to youtube-transcript library ───────────────────────────
+    return await this.fromYoutubeTranscriptLib(videoId);
+  }
+
+  // ── Supadata API ────────────────────────────────────────────────────────────
+  private async fromSupadata(videoId: string): Promise<TranscriptResult | null> {
+    try {
+      this.logger.log(`Supadata: fetching transcript for ${videoId}`);
+
+      const res = await fetch(
+        `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=false`,
+        {
+          headers: {
+            'x-api-key': this.supadataKey!,
+            'Accept': 'application/json',
+          },
+        },
+      );
+
+      if (!res.ok) {
+        this.logger.warn(`Supadata returned ${res.status} — falling back`);
+        return null;
+      }
+
+      const data = await res.json() as SupadataResponse;
+
+      // content can be an array of segments or a plain string
+      if (!data.content) return null;
+
+      let segments: TranscriptSegment[];
+
+      if (Array.isArray(data.content)) {
+        if (!data.content.length) return null;
+        segments = this.mergeCaptions(
+          data.content.map((s) => ({
+            text: s.text,
+            offset: s.offset,   // already in ms
+            duration: s.duration,
+          })),
+        );
+      } else if (typeof data.content === 'string' && data.content.trim()) {
+        // Plain text fallback — treat as single segment
+        segments = [{ start: 0, text: data.content.trim() }];
+      } else {
+        return null;
+      }
+
+      this.logger.log(`Supadata: ${segments.length} segments (lang=${data.lang ?? 'unknown'})`);
+      return { segments, source: 'youtube_captions' };
+    } catch (err) {
+      this.logger.warn(`Supadata failed: ${String(err)} — falling back`);
+      return null;
+    }
+  }
+
+  // ── youtube-transcript library (original fallback) ──────────────────────────
+  private async fromYoutubeTranscriptLib(videoId: string): Promise<TranscriptResult | null> {
     try {
       type YoutubeTranscriptLib = {
         YoutubeTranscript: {
@@ -45,10 +129,7 @@ export class TranscriptService {
       for (const lang of ['en', 'en-US', 'en-GB']) {
         try {
           const result = await YoutubeTranscript.fetchTranscript(videoId, { lang });
-          if (result?.length) {
-            captions = result;
-            break;
-          }
+          if (result?.length) { captions = result; break; }
         } catch {
           // try next language
         }
@@ -61,7 +142,7 @@ export class TranscriptService {
       if (!captions?.length) return null;
 
       const segments = this.mergeCaptions(captions);
-      this.logger.log(`YouTube captions: ${segments.length} segments`);
+      this.logger.log(`YouTube captions (lib): ${segments.length} segments`);
       return { segments, source: 'youtube_captions' };
     } catch (err) {
       this.logger.warn(`YouTube captions failed: ${String(err)}`);
@@ -69,6 +150,7 @@ export class TranscriptService {
     }
   }
 
+  // ── Whisper ─────────────────────────────────────────────────────────────────
   async fromWhisper(videoPath: string): Promise<TranscriptResult> {
     this.logger.log(`Whisper transcription: ${videoPath}`);
     const audioPath = await this.ffmpeg.extractAudioMp3(videoPath);
@@ -94,6 +176,7 @@ export class TranscriptService {
     }
   }
 
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   private mergeCaptions(captions: CaptionItem[]): TranscriptSegment[] {
     const result: TranscriptSegment[] = [];
     let current = '';

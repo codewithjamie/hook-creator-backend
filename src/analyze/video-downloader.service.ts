@@ -157,30 +157,30 @@ export class VideoDownloaderService {
 
   // ── yt-dlp args builder ───────────────────────────────────────────────────
   private buildArgs(url: string, outputPath: string): string[] {
-  const args = [
-    '--no-playlist',
-    '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
-    '--merge-output-format', 'mp4',
-    '--output', outputPath,
-    '--no-warnings',
-    '--socket-timeout', '30',
-    '--retries', '3',
-    '--fragment-retries', '3',
-    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    '--add-header', 'Accept-Language:en-US,en;q=0.9',
-  ];
+    const args = [
+      '--no-playlist',
+      '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+      '--merge-output-format', 'mp4',
+      '--output', outputPath,
+      '--no-warnings',
+      '--socket-timeout', '30',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      '--add-header', 'Accept-Language:en-US,en;q=0.9',
+    ];
 
-  if (this.hasCookies) {
-    args.push('--cookies', this.cookiesPath);
+    if (this.hasCookies) {
+      args.push('--cookies', this.cookiesPath);
+    }
+
+    if (url.includes('rumble.com')) {
+      args.push('--add-header', 'Referer:https://rumble.com');
+    }
+
+    args.push(url);
+    return args;
   }
-
-  if (url.includes('rumble.com')) {
-    args.push('--add-header', 'Referer:https://rumble.com');
-  }
-
-  args.push(url);
-  return args;
-}
 
   async cleanup(...paths: string[]): Promise<void> {
     for (const p of paths) {

@@ -39,22 +39,58 @@ export class VideoDownloaderService {
     const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
     this.logger.log(`Downloading video → ${outputPath}`);
 
-    if (url.includes('rumble.com')) {
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
       try {
-        // Get the embed URL via oEmbed — yt-dlp handles embed URLs fine
-        const embedUrl = await this.resolveRumbleUrl(url);
-        this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
-        await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
-        this.logger.log(`Rumble download complete → ${outputPath}`);
+        const directUrl = await this.resolveYouTubeUrl(url);
+        await this.downloadDirectUrl(directUrl, outputPath);
+        this.logger.log(`YouTube direct download complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
-        this.logger.warn(`Rumble embed strategy failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
+        this.logger.warn(`YouTube direct download failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
       }
     }
 
-    await this.runYtDlp(this.buildArgs(url, outputPath));
-    this.logger.log(`Download complete → ${outputPath}`);
-    return outputPath;
+    if (url.includes('rumble.com')) {
+      try {
+        const embedUrl = await this.resolveRumbleUrl(url);
+        this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
+        await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+        return outputPath;
+      } catch (err) {
+        this.logger.warn(`Rumble embed strategy failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+  }
+
+  await this.runYtDlp(this.buildArgs(url, outputPath));
+  this.logger.log(`Download complete → ${outputPath}`);
+  return outputPath;
+  }
+
+  private async resolveYouTubeUrl(url: string): Promise<string> {
+    this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
+
+    const res = await fetch('https://api.cobalt.tools/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        videoQuality: '720',
+        filenameStyle: 'basic',
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Cobalt API returned ${res.status}`);
+
+    const data = await res.json() as { status: string; url?: string; tunnel?: string };
+    this.logger.log(`Cobalt response status: ${data.status}`);
+
+    const videoUrl = data.url ?? data.tunnel;
+    if (!videoUrl) throw new Error(`No URL in Cobalt response: ${JSON.stringify(data)}`);
+
+    return videoUrl;
   }
 
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────

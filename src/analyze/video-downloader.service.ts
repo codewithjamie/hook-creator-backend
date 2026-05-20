@@ -66,16 +66,21 @@ export class VideoDownloaderService {
       },
     });
 
-    if (!res.ok) {
-      throw new Error(`Rumble oEmbed returned ${res.status}`);
+    if (!res.ok) throw new Error(`Rumble oEmbed returned ${res.status}`);
+
+    const data = await res.json() as { url?: string; html?: string; thumbnail_url?: string };
+    this.logger.log(`Rumble oEmbed response keys: ${Object.keys(data).join(', ')}`);
+
+    // Rumble returns an iframe in the `html` field, not a direct `url`
+    // Extract embed URL from: <iframe src="https://rumble.com/embed/XXXXX/...">
+    let embedUrl = data.url;
+
+    if (!embedUrl && data.html) {
+      const srcMatch = data.html.match(/src="(https:\/\/rumble\.com\/embed\/[^"]+)"/);
+      if (srcMatch) embedUrl = srcMatch[1];
     }
 
-    const data = await res.json() as { url?: string; thumbnail_url?: string };
-
-    // oEmbed gives us an embed URL like https://rumble.com/embed/xxxxx
-    // We need to scrape the actual .mp4 from the embed page
-    const embedUrl = data.url;
-    if (!embedUrl) throw new Error('No embed URL in Rumble oEmbed response');
+    if (!embedUrl) throw new Error(`No embed URL found. oEmbed keys: ${Object.keys(data).join(', ')}`);
 
     const directMp4 = await this.scrapeRumbleEmbed(embedUrl);
     return directMp4;

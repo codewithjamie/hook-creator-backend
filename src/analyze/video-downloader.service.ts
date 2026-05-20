@@ -36,24 +36,24 @@ export class VideoDownloaderService {
     const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
     this.logger.log(`Downloading video → ${outputPath}`);
 
-    // Rumble: try oEmbed direct URL first, fall back to yt-dlp
     if (url.includes('rumble.com')) {
       try {
-        const directUrl = await this.resolveRumbleUrl(url);
-        await this.downloadDirectUrl(directUrl, outputPath);
-        this.logger.log(`Rumble oEmbed download complete → ${outputPath}`);
+        // Get the embed URL via oEmbed — yt-dlp handles embed URLs fine
+        const embedUrl = await this.resolveRumbleUrl(url);
+        this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
+        await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+        this.logger.log(`Rumble download complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
-        this.logger.warn(`Rumble oEmbed failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
+        this.logger.warn(`Rumble embed strategy failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
       }
     }
 
-    // Standard yt-dlp path for YouTube + fallback for Rumble
     await this.runYtDlp(this.buildArgs(url, outputPath));
     this.logger.log(`Download complete → ${outputPath}`);
     return outputPath;
   }
-
+  
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────
   private async resolveRumbleUrl(pageUrl: string): Promise<string> {
     this.logger.log(`Resolving Rumble oEmbed → ${pageUrl}`);
@@ -61,29 +61,22 @@ export class VideoDownloaderService {
     const oEmbedUrl = `https://rumble.com/api/Media/oembed.json?url=${encodeURIComponent(pageUrl)}`;
     const res = await fetch(oEmbedUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
       },
     });
 
     if (!res.ok) throw new Error(`Rumble oEmbed returned ${res.status}`);
 
-    const data = await res.json() as { url?: string; html?: string; thumbnail_url?: string };
+    const data = await res.json() as { html?: string };
     this.logger.log(`Rumble oEmbed response keys: ${Object.keys(data).join(', ')}`);
 
-    // Rumble returns an iframe in the `html` field, not a direct `url`
-    // Extract embed URL from: <iframe src="https://rumble.com/embed/XXXXX/...">
-    let embedUrl = data.url;
+    // Extract embed URL from iframe html field
+    const srcMatch = data.html?.match(/src="(https:\/\/rumble\.com\/embed\/[^"]+)"/);
+    if (!srcMatch) throw new Error('No embed URL in Rumble oEmbed html field');
 
-    if (!embedUrl && data.html) {
-      const srcMatch = data.html.match(/src="(https:\/\/rumble\.com\/embed\/[^"]+)"/);
-      if (srcMatch) embedUrl = srcMatch[1];
-    }
-
-    if (!embedUrl) throw new Error(`No embed URL found. oEmbed keys: ${Object.keys(data).join(', ')}`);
-
-    const directMp4 = await this.scrapeRumbleEmbed(embedUrl);
-    return directMp4;
+    // Return just the embed URL — caller will use yt-dlp on it
+    return srcMatch[1];
   }
 
   private async scrapeRumbleEmbed(embedUrl: string): Promise<string> {

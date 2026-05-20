@@ -19,26 +19,18 @@ export class VideoDownloaderService {
   }
 
   private writeCookies(): void {
-    // Try base64-encoded version first (recommended for env vars)
     const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
+    this.logger.log(`YOUTUBE_COOKIES_B64 present: ${!!b64} | length: ${b64?.length ?? 0}`);
     if (b64) {
       const decoded = Buffer.from(b64, 'base64').toString('utf8');
+      this.logger.log(`Decoded cookies preview: ${decoded.substring(0, 50)}`);
       fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
       this.logger.log('YouTube cookies written from base64 env var');
       return;
     }
-
-    // Fallback: raw content
-    const raw = this.config.get<string>('YOUTUBE_COOKIES');
-    if (raw) {
-      fs.writeFileSync(this.cookiesPath, raw, 'utf8');
-      this.logger.log('YouTube cookies written from raw env var');
-      return;
-    }
-
     this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
   }
-
+  
   private get hasCookies(): boolean {
     return fs.existsSync(this.cookiesPath);
   }

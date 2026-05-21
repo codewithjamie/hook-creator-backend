@@ -85,33 +85,23 @@ export class VideoDownloaderService {
   }
 
   private async resolveYouTubeUrl(url: string): Promise<string> {
-    this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
+    const videoId = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (!videoId) throw new Error('Could not extract video ID');
 
-    const res = await fetch('https://api.cobalt.tools/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0',
-      },
-      body: JSON.stringify({
-        url,
-        quality: '720',
-        downloadMode: 'auto',
-        filenameStyle: 'basic',
-      }),
-    });
+    const res = await fetch(
+      `https://youtube-video-downloader-api.p.rapidapi.com/v1/video?id=${videoId}`,
+      {
+        headers: {
+          'x-rapidapi-key': this.config.get<string>('RAPIDAPI_KEY')!,
+          'x-rapidapi-host': 'youtube-video-downloader-api.p.rapidapi.com',
+        },
+      }
+    );
 
-    const raw = await res.text();
-    this.logger.log(`Cobalt raw response (${res.status}): ${raw.substring(0, 200)}`);
-
-    if (!res.ok) throw new Error(`Cobalt API returned ${res.status}: ${raw}`);
-
-    const data = JSON.parse(raw) as { status: string; url?: string; tunnel?: string };
-    const videoUrl = data.url ?? data.tunnel;
-    if (!videoUrl) throw new Error(`No URL in Cobalt response: ${raw}`);
-
-    return videoUrl;
+    const data = await res.json() as { formats: Array<{ url: string; quality: string }> };
+    const format = data.formats.find(f => f.quality.includes('720') || f.quality.includes('480'));
+    if (!format?.url) throw new Error('No suitable format found');
+    return format.url;
   }
 
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────

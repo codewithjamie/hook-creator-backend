@@ -6,12 +6,18 @@ import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
-// Piped instances — fallback through each if one fails
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://piped-api.garudalinux.org',
   'https://api.piped.projectsegfau.lt',
   'https://pipedapi.in.projectsegfau.lt',
+];
+
+const INVIDIOUS_INSTANCES = [
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.privacyredirect.com',
+  'https://yt.cdaut.de',
 ];
 
 @Injectable()
@@ -27,7 +33,6 @@ export class VideoDownloaderService {
     this.initCookies();
   }
 
-  // Write base64 env var to disk as fallback (if secret file not present)
   private initCookies(): void {
     const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
     if (b64) {
@@ -40,7 +45,6 @@ export class VideoDownloaderService {
       }
       return;
     }
-
     const raw = this.config.get<string>('YOUTUBE_COOKIES');
     if (raw) {
       try {
@@ -51,17 +55,14 @@ export class VideoDownloaderService {
       }
       return;
     }
-
-    this.logger.warn('No YOUTUBE_COOKIES env var — will rely on secret file or no cookies');
+    this.logger.warn('No YOUTUBE_COOKIES env var — will rely on secret file');
   }
 
-  // Resolves cookies from Render secret file first, then falls back to env-written file
   private getCookiesArgs(): string[] {
     const candidatePaths = [
       process.env.YTDLP_COOKIES_PATH,
-      '/etc/secrets/cookies.txt',   // Render Secret File (most reliable)      
-      '/app/cookies.txt',
-      this.cookiesPath,              // Written from env var at startup
+      '/etc/secrets/cookies.txt',
+      this.cookiesPath,
     ].filter(Boolean) as string[];
 
     for (const sourcePath of candidatePaths) {
@@ -86,31 +87,45 @@ export class VideoDownloaderService {
     const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
     this.logger.log(`Downloading video → ${outputPath}`);
 
-    // ── YouTube: try Piped instances first ──────────────────────────────────
+    // ── YouTube ─────────────────────────────────────────────────────────────
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      const directUrl = await this.resolveViaPiped(url);
-      if (directUrl) {
+      // 1. Try Piped
+      const pipedUrl = await this.resolveViaPiped(url);
+      if (pipedUrl) {
         try {
-          await this.downloadDirectUrl(directUrl, outputPath);
+          await this.downloadDirectUrl(pipedUrl, outputPath);
           this.logger.log(`YouTube via Piped complete → ${outputPath}`);
           return outputPath;
         } catch (err) {
-          this.logger.warn(`Piped stream download failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
+          this.logger.warn(`Piped stream failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      // yt-dlp fallback with cookies
+
+      // 2. Try Invidious
+      const invidiousUrl = await this.resolveViaInvidious(url);
+      if (invidiousUrl) {
+        try {
+          await this.downloadDirectUrl(invidiousUrl, outputPath);
+          this.logger.log(`YouTube via Invidious complete → ${outputPath}`);
+          return outputPath;
+        } catch (err) {
+          this.logger.warn(`Invidious stream failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // 3. yt-dlp with cookies last resort
       try {
         await this.runYtDlp(this.buildArgs(url, outputPath));
         this.logger.log(`YouTube via yt-dlp complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
         throw new InternalServerErrorException(
-          `YouTube download failed. The video may be age-restricted or unavailable. (${err instanceof Error ? err.message : String(err)})`,
+          `YouTube download failed. Please upload the video directly instead.`,
         );
       }
     }
 
-    // ── Rumble: resolve embed URL first ────────────────────────────────────
+    // ── Rumble ──────────────────────────────────────────────────────────────
     if (url.includes('rumble.com')) {
       try {
         const embedUrl = await this.resolveRumbleUrl(url);
@@ -123,58 +138,44 @@ export class VideoDownloaderService {
       }
     }
 
-    // ── Generic yt-dlp fallback ────────────────────────────────────────────
+    // ── Generic yt-dlp fallback ──────────────────────────────────────────────
     await this.runYtDlp(this.buildArgs(url, outputPath));
     this.logger.log(`Download complete → ${outputPath}`);
     return outputPath;
   }
 
-  // ── Piped API resolver (tries multiple instances) ──────────────────────────
+  // ── Piped resolver ─────────────────────────────────────────────────────────
   private async resolveViaPiped(url: string): Promise<string | null> {
-    const videoId = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    const videoId = url.match(/(?:v=|youtu\.be\/|live\/)([a-zA-Z0-9_-]{11})/)?.[1];
     if (!videoId) return null;
 
     for (const instance of PIPED_INSTANCES) {
       try {
-        this.logger.log(`Trying Piped instance: ${instance} | videoId=${videoId}`);
-
+        this.logger.log(`Trying Piped: ${instance} | videoId=${videoId}`);
         const res = await fetch(`${instance}/streams/${videoId}`, {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(8000),
         });
 
-        if (!res.ok) {
-          this.logger.warn(`Piped ${instance} returned ${res.status}`);
-          continue;
-        }
+        if (!res.ok) { this.logger.warn(`Piped ${instance} returned ${res.status}`); continue; }
 
         const data = await res.json() as {
           videoStreams?: Array<{ url: string; quality: string; format: string; videoOnly: boolean }>;
-          audioStreams?: Array<{ url: string; quality: string; format: string }>;
           error?: string;
         };
 
-        if (data.error) {
-          this.logger.warn(`Piped ${instance} error: ${data.error}`);
-          continue;
-        }
+        if (data.error) { this.logger.warn(`Piped ${instance} error: ${data.error}`); continue; }
+        if (!data.videoStreams?.length) { this.logger.warn(`Piped ${instance}: no streams`); continue; }
 
-        if (!data.videoStreams?.length) {
-          this.logger.warn(`Piped ${instance}: no video streams`);
-          continue;
-        }
-
-        // Prefer 720p MP4 with audio included
         const stream =
           data.videoStreams.find(s => !s.videoOnly && s.quality === '720p' && s.format === 'MPEG_4') ??
           data.videoStreams.find(s => !s.videoOnly && s.format === 'MPEG_4') ??
           data.videoStreams.find(s => !s.videoOnly) ??
-          data.videoStreams.find(s => s.quality === '720p') ??
           data.videoStreams[0];
 
         if (!stream?.url) continue;
 
-        this.logger.log(`Piped resolved | instance=${instance} | quality=${stream.quality} | format=${stream.format}`);
+        this.logger.log(`Piped resolved | ${instance} | quality=${stream.quality}`);
         return stream.url;
       } catch (err) {
         this.logger.warn(`Piped ${instance} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -182,6 +183,51 @@ export class VideoDownloaderService {
     }
 
     this.logger.warn('All Piped instances failed');
+    return null;
+  }
+
+  // ── Invidious resolver ─────────────────────────────────────────────────────
+  private async resolveViaInvidious(url: string): Promise<string | null> {
+    const videoId = url.match(/(?:v=|youtu\.be\/|live\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (!videoId) return null;
+
+    for (const instance of INVIDIOUS_INSTANCES) {
+      try {
+        this.logger.log(`Trying Invidious: ${instance} | videoId=${videoId}`);
+        const res = await fetch(
+          `${instance}/api/v1/videos/${videoId}?fields=adaptiveFormats,formatStreams`,
+          {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          },
+        );
+
+        if (!res.ok) { this.logger.warn(`Invidious ${instance} returned ${res.status}`); continue; }
+
+        const data = await res.json() as {
+          formatStreams?: Array<{ url: string; qualityLabel: string; container: string }>;
+          adaptiveFormats?: Array<{ url: string; qualityLabel: string; container: string; type: string }>;
+          error?: string;
+        };
+
+        if (data.error) { this.logger.warn(`Invidious ${instance} error: ${data.error}`); continue; }
+
+        // formatStreams = muxed audio+video (ideal)
+        const stream =
+          data.formatStreams?.find(s => s.qualityLabel === '720p' && s.container === 'mp4') ??
+          data.formatStreams?.find(s => s.container === 'mp4') ??
+          data.formatStreams?.[0];
+
+        if (!stream?.url) { this.logger.warn(`Invidious ${instance}: no usable stream`); continue; }
+
+        this.logger.log(`Invidious resolved | ${instance} | quality=${stream.qualityLabel}`);
+        return stream.url;
+      } catch (err) {
+        this.logger.warn(`Invidious ${instance} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    this.logger.warn('All Invidious instances failed');
     return null;
   }
 
@@ -250,7 +296,6 @@ export class VideoDownloaderService {
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
     ];
 
-    // Use cookies from secret file or env var
     args.push(...this.getCookiesArgs());
 
     if (url.includes('rumble.com')) {

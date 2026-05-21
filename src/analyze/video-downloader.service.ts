@@ -24,47 +24,62 @@ export class VideoDownloaderService {
     this.uploadDir = config.get<string>('UPLOAD_DIR', '/tmp/openedge-uploads');
     this.cookiesPath = path.join(this.uploadDir, 'yt-cookies.txt');
     fs.mkdirSync(this.uploadDir, { recursive: true });
-    this.writeCookies();
+    this.initCookies();
   }
 
-  // private writeCookies(): void {
-  //   const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
-  //   if (b64) {
-  //     const decoded = Buffer.from(b64, 'base64').toString('utf8');
-  //     fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
-  //     this.logger.log('YouTube cookies written from base64 env var');
-  //     return;
-  //   }
-  //   const raw = this.config.get<string>('YOUTUBE_COOKIES');
-  //   if (raw) {
-  //     fs.writeFileSync(this.cookiesPath, raw, 'utf8');
-  //     this.logger.log('YouTube cookies written from raw env var');
-  //     return;
-  //   }
-  //   this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
-  // }
-  private writeCookies(): void {
+  // Write base64 env var to disk as fallback (if secret file not present)
+  private initCookies(): void {
+    const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
+    if (b64) {
+      try {
+        const decoded = Buffer.from(b64, 'base64').toString('utf8');
+        fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
+        this.logger.log('YouTube cookies written from YOUTUBE_COOKIES_B64');
+      } catch (err) {
+        this.logger.warn(`Failed to write cookies from base64: ${String(err)}`);
+      }
+      return;
+    }
+
+    const raw = this.config.get<string>('YOUTUBE_COOKIES');
+    if (raw) {
+      try {
+        fs.writeFileSync(this.cookiesPath, raw, 'utf8');
+        this.logger.log('YouTube cookies written from YOUTUBE_COOKIES');
+      } catch (err) {
+        this.logger.warn(`Failed to write cookies from raw: ${String(err)}`);
+      }
+      return;
+    }
+
+    this.logger.warn('No YOUTUBE_COOKIES env var — will rely on secret file or no cookies');
+  }
+
+  // Resolves cookies from Render secret file first, then falls back to env-written file
+  private getCookiesArgs(): string[] {
     const candidatePaths = [
       process.env.YTDLP_COOKIES_PATH,
-      '/etc/secrets/cookies.txt',
+      '/etc/secrets/cookies.txt',   // Render Secret File (most reliable)      
       '/app/cookies.txt',
+      this.cookiesPath,              // Written from env var at startup
     ].filter(Boolean) as string[];
 
     for (const sourcePath of candidatePaths) {
       if (fs.existsSync(sourcePath)) {
-        const writablePath = path.join(os.tmpdir(), 'yt_cookies_clip.txt');
-        fs.copyFileSync(sourcePath, writablePath);
-        fs.chmodSync(writablePath, 0o600);
-        this.logger.log(`Cookies prepared: ${writablePath}`);
-        return;
+        try {
+          const writablePath = path.join(os.tmpdir(), 'yt_cookies.txt');
+          fs.copyFileSync(sourcePath, writablePath);
+          fs.chmodSync(writablePath, 0o600);
+          this.logger.log(`Cookies loaded from: ${sourcePath}`);
+          return ['--cookies', writablePath];
+        } catch (err) {
+          this.logger.warn(`Failed to copy cookies from ${sourcePath}: ${String(err)}`);
+        }
       }
     }
 
-    this.logger.warn('No cookies file found — video download may be blocked by YouTube');
-  }
-
-  private get hasCookies(): boolean {
-    return fs.existsSync(this.cookiesPath);
+    this.logger.warn('No cookies file found — bot detection may trigger');
+    return [];
   }
 
   async download(url: string): Promise<string> {
@@ -83,6 +98,16 @@ export class VideoDownloaderService {
           this.logger.warn(`Piped stream download failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
         }
       }
+      // yt-dlp fallback with cookies
+      try {
+        await this.runYtDlp(this.buildArgs(url, outputPath));
+        this.logger.log(`YouTube via yt-dlp complete → ${outputPath}`);
+        return outputPath;
+      } catch (err) {
+        throw new InternalServerErrorException(
+          `YouTube download failed. The video may be age-restricted or unavailable. (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
     }
 
     // ── Rumble: resolve embed URL first ────────────────────────────────────
@@ -91,13 +116,14 @@ export class VideoDownloaderService {
         const embedUrl = await this.resolveRumbleUrl(url);
         this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
         await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+        this.logger.log(`Rumble download complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
         this.logger.warn(`Rumble embed failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
       }
     }
 
-    // ── Fallback: yt-dlp ───────────────────────────────────────────────────
+    // ── Generic yt-dlp fallback ────────────────────────────────────────────
     await this.runYtDlp(this.buildArgs(url, outputPath));
     this.logger.log(`Download complete → ${outputPath}`);
     return outputPath;
@@ -114,7 +140,7 @@ export class VideoDownloaderService {
 
         const res = await fetch(`${instance}/streams/${videoId}`, {
           headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000), // 8s timeout per instance
+          signal: AbortSignal.timeout(8000),
         });
 
         if (!res.ok) {
@@ -168,7 +194,7 @@ export class VideoDownloaderService {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.youtube.com',
       },
-      signal: AbortSignal.timeout(120_000), // 2 min timeout
+      signal: AbortSignal.timeout(120_000),
     });
 
     if (!res.ok) throw new Error(`Direct download failed: ${res.status}`);
@@ -182,10 +208,7 @@ export class VideoDownloaderService {
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) {
-              writer.end();
-              break;
-            }
+            if (done) { writer.end(); break; }
             writer.write(Buffer.from(value));
           }
           writer.on('finish', resolve);
@@ -227,8 +250,12 @@ export class VideoDownloaderService {
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
     ];
 
-    if (this.hasCookies) args.push('--cookies', this.cookiesPath);
-    if (url.includes('rumble.com')) args.push('--add-header', 'Referer:https://rumble.com');
+    // Use cookies from secret file or env var
+    args.push(...this.getCookiesArgs());
+
+    if (url.includes('rumble.com')) {
+      args.push('--add-header', 'Referer:https://rumble.com');
+    }
 
     const proxyUrl = this.config.get<string>('PROXY_URL');
     if (proxyUrl) args.push('--proxy', proxyUrl);

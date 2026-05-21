@@ -1,8 +1,9 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { spawn } from 'child_process';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
 // Piped instances — fallback through each if one fails
@@ -26,21 +27,40 @@ export class VideoDownloaderService {
     this.writeCookies();
   }
 
+  // private writeCookies(): void {
+  //   const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
+  //   if (b64) {
+  //     const decoded = Buffer.from(b64, 'base64').toString('utf8');
+  //     fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
+  //     this.logger.log('YouTube cookies written from base64 env var');
+  //     return;
+  //   }
+  //   const raw = this.config.get<string>('YOUTUBE_COOKIES');
+  //   if (raw) {
+  //     fs.writeFileSync(this.cookiesPath, raw, 'utf8');
+  //     this.logger.log('YouTube cookies written from raw env var');
+  //     return;
+  //   }
+  //   this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
+  // }
   private writeCookies(): void {
-    const b64 = this.config.get<string>('YOUTUBE_COOKIES_B64');
-    if (b64) {
-      const decoded = Buffer.from(b64, 'base64').toString('utf8');
-      fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
-      this.logger.log('YouTube cookies written from base64 env var');
-      return;
+    const candidatePaths = [
+      process.env.YTDLP_COOKIES_PATH,
+      '/etc/secrets/cookies.txt',
+      '/app/cookies.txt',
+    ].filter(Boolean) as string[];
+
+    for (const sourcePath of candidatePaths) {
+      if (fs.existsSync(sourcePath)) {
+        const writablePath = path.join(os.tmpdir(), 'yt_cookies_clip.txt');
+        fs.copyFileSync(sourcePath, writablePath);
+        fs.chmodSync(writablePath, 0o600);
+        this.logger.log(`Cookies prepared: ${writablePath}`);
+        return;
+      }
     }
-    const raw = this.config.get<string>('YOUTUBE_COOKIES');
-    if (raw) {
-      fs.writeFileSync(this.cookiesPath, raw, 'utf8');
-      this.logger.log('YouTube cookies written from raw env var');
-      return;
-    }
-    this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
+
+    this.logger.warn('No cookies file found — video download may be blocked by YouTube');
   }
 
   private get hasCookies(): boolean {

@@ -39,14 +39,13 @@ export class VideoDownloaderService {
     const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
     this.logger.log(`Downloading video → ${outputPath}`);
 
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+   if (url.includes('youtube.com') || url.includes('youtu.be')) {
       try {
-        const directUrl = await this.resolveYouTubeUrl(url);
-        await this.downloadDirectUrl(directUrl, outputPath);
-        this.logger.log(`YouTube direct download complete → ${outputPath}`);
+        await this.downloadYouTubeDirect(url, outputPath);
+        this.logger.log(`YouTube ytdl-core download complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
-        this.logger.warn(`YouTube direct download failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
+        this.logger.warn(`ytdl-core failed: ${err instanceof Error ? err.message : String(err)} — trying yt-dlp`);
       }
     }
 
@@ -66,35 +65,54 @@ export class VideoDownloaderService {
   return outputPath;
   }
 
+  private async downloadYouTubeDirect(url: string, outputPath: string): Promise<void> {
+    const ytdl = require('@distube/ytdl-core');
+    
+    const info = await ytdl.getInfo(url);
+    const format = ytdl.chooseFormat(info.formats, { 
+      quality: 'highestvideo',
+      filter: (f: any) => f.container === 'mp4' && f.height <= 720
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const stream = ytdl.downloadFromInfo(info, { format });
+      const writer = fs.createWriteStream(outputPath);
+      stream.pipe(writer);
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+      stream.on('error', reject);
+    });
+  }
+
   private async resolveYouTubeUrl(url: string): Promise<string> {
-  this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
+    this.logger.log(`Resolving YouTube URL via cobalt → ${url}`);
 
-  const res = await fetch('https://api.cobalt.tools/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'User-Agent': 'Mozilla/5.0',
-    },
-    body: JSON.stringify({
-      url,
-      quality: '720',
-      downloadMode: 'auto',
-      filenameStyle: 'basic',
-    }),
-  });
+    const res = await fetch('https://api.cobalt.tools/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      body: JSON.stringify({
+        url,
+        quality: '720',
+        downloadMode: 'auto',
+        filenameStyle: 'basic',
+      }),
+    });
 
-  const raw = await res.text();
-  this.logger.log(`Cobalt raw response (${res.status}): ${raw.substring(0, 200)}`);
+    const raw = await res.text();
+    this.logger.log(`Cobalt raw response (${res.status}): ${raw.substring(0, 200)}`);
 
-  if (!res.ok) throw new Error(`Cobalt API returned ${res.status}: ${raw}`);
+    if (!res.ok) throw new Error(`Cobalt API returned ${res.status}: ${raw}`);
 
-  const data = JSON.parse(raw) as { status: string; url?: string; tunnel?: string };
-  const videoUrl = data.url ?? data.tunnel;
-  if (!videoUrl) throw new Error(`No URL in Cobalt response: ${raw}`);
+    const data = JSON.parse(raw) as { status: string; url?: string; tunnel?: string };
+    const videoUrl = data.url ?? data.tunnel;
+    if (!videoUrl) throw new Error(`No URL in Cobalt response: ${raw}`);
 
-  return videoUrl;
-}
+    return videoUrl;
+  }
 
   // ── Rumble oEmbed resolver ─────────────────────────────────────────────────
   private async resolveRumbleUrl(pageUrl: string): Promise<string> {

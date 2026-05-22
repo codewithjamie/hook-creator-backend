@@ -25,6 +25,7 @@ RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY src/ ./src/
+COPY assets/ ./assets/
 
 # Build TypeScript
 RUN npm run build
@@ -67,6 +68,7 @@ RUN ffmpeg -version | head -1 \
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/assets ./assets
 
 # ── Runtime config ────────────────────────────────────────────────────────────
 # Create upload temp directory

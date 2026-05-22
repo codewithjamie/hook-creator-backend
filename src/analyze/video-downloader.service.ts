@@ -7,17 +7,14 @@ import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
 const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://piped-api.garudalinux.org',
-  'https://api.piped.projectsegfau.lt',
-  'https://pipedapi.in.projectsegfau.lt',
+  'https://pipedapi.kavin.rocks', 
 ];
 
 const INVIDIOUS_INSTANCES = [
   'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de',
-  'https://invidious.privacyredirect.com',
-  'https://yt.cdaut.de',
+  'https://invidious.darkness.services',
+  'https://invidious.reallyaweso.me',
+  'https://invidious.perennialte.ch',
 ];
 
 @Injectable()

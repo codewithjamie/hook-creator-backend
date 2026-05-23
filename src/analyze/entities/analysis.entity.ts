@@ -72,6 +72,6 @@ export class AnalysisEntity {
   @Column({ type: 'uuid' })
   userId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true })
   hookScoreLabel: string | null;
 }

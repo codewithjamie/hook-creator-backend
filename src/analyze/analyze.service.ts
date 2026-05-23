@@ -781,9 +781,15 @@ const COST_URL_ANALYZE = 1;
 const COST_UPLOAD_ANALYZE = 3;
 const COST_REBUILD = 3;
 const COST_CLIP = 1;
-const MAX_HOOKS = 3; // process top 3 only to save memory
 const MAX_HOOKS_ANALYZE = 1;   // /analyze — best hook only
 const MAX_HOOKS_HOOK_ONLY = 6; // /hook-only — 6 hooks
+
+// Video duration credit tiers (in seconds)
+const DURATION_TIERS = [
+  { minSeconds: 50 * 60, extraCredits: 4 },  // > 50 mins
+  { minSeconds: 20 * 60, extraCredits: 2 },  // > 20 mins
+  { minSeconds: 10 * 60, extraCredits: 1 },  // > 10 mins
+];
 
 @Injectable()
 export class AnalyzeService {
@@ -967,6 +973,11 @@ export class AnalyzeService {
         this.logger.log(`Step 4: Video already downloaded`);
       }
 
+      // ── Step 4b: Duration-based credit deduction ───────────────────────────────
+      const { durationSeconds } = await this.deductDurationCredits(
+        userId, userEmail, videoPath, `analyze ${video_url}`, record.id,
+      );
+
       // ── Step 5: Extract clips sequentially ────────────────────────────────
       this.logger.log(`Step 5: Extracting clips for top ${topHooks.length} hooks (sequential)`);
       const processedHooks = await this.processHooksSequentially(
@@ -1002,6 +1013,7 @@ export class AnalyzeService {
         transcriptSource: source,
         fullHooks: processedHooks,
         videoTitle: videoTitle ?? 'Untitled',
+        videoDurationSeconds: durationSeconds,  
       });
 
       this.logger.log(
@@ -1068,6 +1080,10 @@ export class AnalyzeService {
       }
       this.logger.log(`Step 2: Transcript ready | segments=${segments.length}`);
 
+      const { durationSeconds } = await this.deductDurationCredits(
+        userId, userEmail, file.path, `upload ${file.originalname}`, record.id,
+      );
+
       const minDur = body.min_hook_duration ? parseInt(body.min_hook_duration, 10) : this.minDuration;
       const maxDur = body.max_hook_duration ? parseInt(body.max_hook_duration, 10) : this.maxDuration;
 
@@ -1109,6 +1125,7 @@ export class AnalyzeService {
         transcriptSource: source,
         fullHooks: hooks.slice(0, MAX_HOOKS_ANALYZE),
         videoTitle: file.originalname,
+        videoDurationSeconds: durationSeconds,  
       });
 
       this.logger.log(`✅ Done | user=${userEmail} | id=${record.id} | clip=${clipUrl}`);
@@ -1184,6 +1201,10 @@ export class AnalyzeService {
       this.logger.log(`Step 3: Downloading video for rebuild`);
       videoPath = await this.downloader.download(original.sourceUrl!);
 
+      const { durationSeconds } = await this.deductDurationCredits(
+        userId, userEmail, videoPath, `rebuild ${original.sourceUrl}`, record.id,
+      );
+
       this.logger.log(`Step 4: Extracting clip | ${chosenHook.startTime}s→${chosenHook.endTime}s`);
       hookPath = await this.ffmpeg.extractClip(videoPath, chosenHook.startTime, chosenHook.endTime);
 
@@ -1203,6 +1224,7 @@ export class AnalyzeService {
         hookScore: chosenHook.hookScore,
         transcriptSource: original.transcriptSource,
         fullHooks: original.fullHooks,
+        videoDurationSeconds: durationSeconds,  
       });
 
       this.logger.log(`✅ Rebuild done | user=${userEmail} | id=${record.id} | clip=${clipUrl}`);
@@ -1373,6 +1395,11 @@ export class AnalyzeService {
         this.logger.log(`Step 4: Video already downloaded`);
       }
 
+      // ---- Step 4b ---------------------------------------
+      const { durationSeconds } = await this.deductDurationCredits(
+        userId, userEmail, videoPath, `hook-only ${video_url}`, record.id,
+      );
+
       // ── Step 5: Extract clips sequentially ────────────────────────────────
       this.logger.log(`Step 5: Extracting hook-only clips for top ${topHooks.length} hooks (sequential)`);
       const processedHooks = await this.processHooksSequentially(
@@ -1402,6 +1429,7 @@ export class AnalyzeService {
         transcriptSource: source,
         fullHooks: processedHooks,
         videoTitle: videoTitle ?? 'Untitled',
+        videoDurationSeconds: durationSeconds,  
       });
 
       this.logger.log(
@@ -1448,6 +1476,39 @@ export class AnalyzeService {
         `Failed to refund credit | user=${userEmail} | error=${String(err)}`,
       );
     }
+  }
+
+  private async deductDurationCredits(
+    userId: string,
+    userEmail: string,
+    videoPath: string,
+    baseDescription: string,
+    recordId: string,
+  ): Promise<{ durationSeconds: number; extraCredits: number }> {
+    const durationSeconds = await this.ffmpeg.getVideoDuration(videoPath);
+    const minutes = durationSeconds / 60;
+
+    const tier = DURATION_TIERS.find((t) => durationSeconds >= t.minSeconds);
+
+    if (!tier) {
+      this.logger.log(
+        `Video duration: ${minutes.toFixed(1)}min — no extra credits needed`,
+      );
+      return { durationSeconds, extraCredits: 0 };
+    }
+
+    this.logger.log(
+      `Video duration: ${minutes.toFixed(1)}min — deducting ${tier.extraCredits} extra credit(s)`,
+    );
+
+    await this.credits.spendCredits(
+      userId,
+      tier.extraCredits,
+      `Extra credits for ${minutes.toFixed(1)}min video (${baseDescription})`,
+      recordId,
+    );
+
+    return { durationSeconds, extraCredits: tier.extraCredits };
   }
 
   private toResponse(record: AnalysisEntity, creditsRemaining: number): AnalysisResponse {

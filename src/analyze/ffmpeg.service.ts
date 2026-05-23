@@ -55,6 +55,29 @@ export class FfmpegService {
     return outputPath;
   }
 
+  async getVideoDuration(videoPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_format',
+        videoPath,
+      ]);
+      const out: Buffer[] = [];
+      proc.stdout?.on('data', (d: Buffer) => out.push(d));
+      proc.on('close', (code) => {
+        if (code !== 0) return resolve(0);
+        try {
+          const json = JSON.parse(Buffer.concat(out).toString());
+          resolve(parseFloat(json.format?.duration ?? '0'));
+        } catch {
+          resolve(0);
+        }
+      });
+      proc.on('error', () => resolve(0));
+    });
+  }
+
   // async mergeWithCrossfade(hookPath: string, fullVideoPath: string): Promise<string> {
   //   const outputPath = path.join(this.uploadDir, `merged-${uuidv4()}.mp4`);
   //   const hookDuration = await this.getDuration(hookPath);

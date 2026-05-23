@@ -60,6 +60,10 @@ export class HistoryService {
       status: record.status,
       creditsUsed: record.creditsUsed,
       createdAt: record.createdAt,
+      fullHooks: record.fullHooks ?? null,        // ← add this
+      whySelected: record.whySelected ?? null,    // ← add this
+      hookScoreLabel: record.hookScoreLabel ?? null, // ← add this if exists on entity
+      videoDurationSeconds: record.videoDurationSeconds ?? null, // ← add this
     };
   }
 }

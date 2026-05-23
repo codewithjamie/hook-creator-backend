@@ -9,10 +9,26 @@ export class HistoryItemResponse {
   @ApiPropertyOptional() startTime: number | null;
   @ApiPropertyOptional() endTime: number | null;
   @ApiPropertyOptional() bridgeSentence: string | null;
-  @ApiProperty({ enum: ['youtube', 'rumble', 'google_drive', 'upload'] }) platform: string;
-  @ApiProperty({ enum: ['pending', 'processing', 'complete', 'failed'] }) status: string;
+
+  @ApiProperty({ enum: ['youtube', 'rumble', 'google_drive', 'upload'] })
+  platform: 'youtube' | 'rumble' | 'google_drive' | 'upload';
+
+  @ApiProperty({ enum: ['pending', 'processing', 'complete', 'failed'] })
+  status: 'pending' | 'processing' | 'complete' | 'failed';
+
   @ApiProperty() creditsUsed: number;
   @ApiProperty() createdAt: Date;
+
+  @ApiPropertyOptional({ type: [Object], nullable: true })
+  fullHooks?: any[] | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  whySelected?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  videoDurationSeconds?: number | null;
+
+  @ApiPropertyOptional({ nullable: true }) hookScoreLabel: string | null;
 }
 
 export class HistoryListResponse {

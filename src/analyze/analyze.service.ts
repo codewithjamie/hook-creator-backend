@@ -782,6 +782,8 @@ const COST_UPLOAD_ANALYZE = 3;
 const COST_REBUILD = 3;
 const COST_CLIP = 1;
 const MAX_HOOKS = 3; // process top 3 only to save memory
+const MAX_HOOKS_ANALYZE = 1;   // /analyze — best hook only
+const MAX_HOOKS_HOOK_ONLY = 6; // /hook-only — 6 hooks
 
 @Injectable()
 export class AnalyzeService {
@@ -950,7 +952,7 @@ export class AnalyzeService {
         );
       }
 
-      const topHooks = hooks.slice(0, MAX_HOOKS);
+      const topHooks = hooks.slice(0, MAX_HOOKS_ANALYZE);
       const best = topHooks[0];
       this.logger.log(
         `Step 3: Hooks scored | best score=${best.hookScore} (${best.hookScoreLabel}) | ${best.startTime}s→${best.endTime}s`,
@@ -1105,7 +1107,7 @@ export class AnalyzeService {
         whySelected: best.whySelected,
         hookScore: best.hookScore,
         transcriptSource: source,
-        fullHooks: hooks.slice(0, MAX_HOOKS),
+        fullHooks: hooks.slice(0, MAX_HOOKS_ANALYZE),
         videoTitle: file.originalname,
       });
 
@@ -1356,7 +1358,7 @@ export class AnalyzeService {
         throw new InternalServerErrorException('Claude could not identify any hooks.');
       }
 
-      const topHooks = hooks.slice(0, MAX_HOOKS);
+      const topHooks = hooks.slice(0, MAX_HOOKS_HOOK_ONLY);
       const best = topHooks[0];
       this.logger.log(
         `Step 3: Best hook | score=${best.hookScore} (${best.hookScoreLabel}) | ${best.startTime}s→${best.endTime}s`,

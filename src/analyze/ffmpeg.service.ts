@@ -273,135 +273,137 @@ export class FfmpegService {
   //   return outputPath;
   // }
 
-  async mergeWithCrossfade(hookPath: string, fullVideoPath: string): Promise<string> {
-    const outputPath = path.join(this.uploadDir, `merged-${uuidv4()}.mp4`);
-    const hookDuration = await this.getDuration(hookPath);
-    const crossfadeDuration = 0.5;
-    const xfadeOffset = Math.max(0, hookDuration - crossfadeDuration);
-    const flashStartTime = Math.max(0, hookDuration - 0.1);
+  // async mergeWithCrossfade(hookPath: string, fullVideoPath: string): Promise<string> {
+  //   const outputPath = path.join(this.uploadDir, `merged-${uuidv4()}.mp4`);
+  //   const hookDuration = await this.getDuration(hookPath);
+  //   const crossfadeDuration = 0.5;
+  //   const xfadeOffset = Math.max(0, hookDuration - crossfadeDuration);
+  //   const flashStartTime = Math.max(0, hookDuration - 0.1);
 
-    // Sound fires 1 second before the flash
-    // const soundStartMs = Math.max(0, Math.round((flashStartTime - 1.0) * 1000));
-    const soundStartMs = Math.max(0, Math.round(flashStartTime * 1000));
+  //   // Sound fires 1 second before the flash
+  //   // const soundStartMs = Math.max(0, Math.round((flashStartTime - 1.0) * 1000));
+  //   const soundStartMs = Math.max(0, Math.round(flashStartTime * 1000));
 
 
-    this.logger.log(
-      `Crossfade merge | hookDuration=${hookDuration.toFixed(3)}s | soundAt=${(soundStartMs / 1000).toFixed(3)}s | flashAt=${flashStartTime.toFixed(3)}s`,
-    );
+  //   this.logger.log(
+  //     `Crossfade merge | hookDuration=${hookDuration.toFixed(3)}s | soundAt=${(soundStartMs / 1000).toFixed(3)}s | flashAt=${flashStartTime.toFixed(3)}s`,
+  //   );
 
-    // Verify transition sound exists
-    if (!require('fs').existsSync(TRANSITION_SOUND_PATH)) {
-      this.logger.warn(
-        `Transition sound not found at ${TRANSITION_SOUND_PATH} — merging without sound`,
-      );
-      return this.mergeWithCrossfadeNoSound(hookPath, fullVideoPath, outputPath, hookDuration, xfadeOffset, flashStartTime);
-    }
+  //   // Verify transition sound exists
+  //   if (!require('fs').existsSync(TRANSITION_SOUND_PATH)) {
+  //     this.logger.warn(
+  //       `Transition sound not found at ${TRANSITION_SOUND_PATH} — merging without sound`,
+  //     );
+  //     return this.mergeWithCrossfadeNoSound(hookPath, fullVideoPath, outputPath, hookDuration, xfadeOffset, flashStartTime);
+  //   }
 
-    // ── Step 1: Add flash + transition sound to hook clip ────────────────────
-    const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
+  //   // ── Step 1: Add flash + transition sound to hook clip ────────────────────
+  //   const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
 
-    this.logger.log(`Transition sound found at ${TRANSITION_SOUND_PATH}`);
+  //   this.logger.log(`Transition sound found at ${TRANSITION_SOUND_PATH}`);
 
-    await this.runCommand(this.ffmpegPath, [
-      '-y',
-      '-i', hookPath,
-      '-i', TRANSITION_SOUND_PATH,
-      '-filter_complex',
-      [
-        // Flash: 0.75s brightness spike at end of hook
-        `[0:v]curves=` +
-          `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
-          `:all='0/0 0.3/1 1/1'[vflash]`,
+  //   await this.runCommand(this.ffmpegPath, [
+  //     '-y',
+  //     '-i', hookPath,
+  //     '-i', TRANSITION_SOUND_PATH,
+  //     '-filter_complex',
+  //     [
+  //       // Flash: 0.75s brightness spike at end of hook
+  //       `[0:v]curves=` +
+  //         `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
+  //         `:all='0/0 0.3/1 1/1'[vflash]`,
 
-        // Delay transition sound to fire 1s before flash
-        `[1:a]adelay=${soundStartMs}|${soundStartMs}[sounddelayed]`,
+  //       // Delay transition sound to fire 1s before flash
+  //       `[1:a]adelay=${soundStartMs}|${soundStartMs}[sounddelayed]`,
 
-        // Mix transition sound with hook audio at 80% volume
-        `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 1.5[amixed]`,
-      ].join(';'),
-      '-map', '[vflash]',
-      '-map', '[amixed]',
-      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '192k',
-      flashedHookPath,
-    ]);
+  //       // Mix transition sound with hook audio at 80% volume
+  //       `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 1.5[amixed]`,
+  //     ].join(';'),
+  //     '-map', '[vflash]',
+  //     '-map', '[amixed]',
+  //     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  //     '-c:a', 'aac', '-b:a', '192k',
+  //     flashedHookPath,
+  //   ]);
 
-    this.logger.log(`Flash + transition sound applied → ${flashedHookPath}`);
+  //   this.logger.log(`Flash + transition sound applied → ${flashedHookPath}`);
 
-    // ── Step 2: xfade dissolve flashed hook into full video ──────────────────
-    const flashedDuration = await this.getDuration(flashedHookPath);
-    const finalOffset = Math.max(0, flashedDuration - crossfadeDuration);
+  //   // ── Step 2: xfade dissolve flashed hook into full video ──────────────────
+  //   const flashedDuration = await this.getDuration(flashedHookPath);
+  //   const finalOffset = Math.max(0, flashedDuration - crossfadeDuration);
 
-    await this.runCommand(this.ffmpegPath, [
-      '-y',
-      '-i', flashedHookPath,
-      '-i', fullVideoPath,
-      '-filter_complex',
-      [
-        `[0:v][1:v]xfade=transition=dissolve:duration=${crossfadeDuration}:offset=${finalOffset.toFixed(3)}[vout]`,
-        `[0:a][1:a]acrossfade=d=${crossfadeDuration}:c1=exp:c2=exp[aout]`,
-      ].join(';'),
-      '-map', '[vout]',
-      '-map', '[aout]',
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '192k',
-      '-movflags', '+faststart',
-      outputPath,
-    ]);
+  //   await this.runCommand(this.ffmpegPath, [
+  //     '-y',
+  //     '-i', flashedHookPath,
+  //     '-i', fullVideoPath,
+  //     '-filter_complex',
+  //     [
+  //       `[0:v][1:v]xfade=transition=dissolve:duration=${crossfadeDuration}:offset=${finalOffset.toFixed(3)}[vout]`,
+  //       `[0:a][1:a]acrossfade=d=${crossfadeDuration}:c1=exp:c2=exp[aout]`,
+  //     ].join(';'),
+  //     '-map', '[vout]',
+  //     '-map', '[aout]',
+  //     '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+  //     '-c:a', 'aac', '-b:a', '192k',
+  //     '-movflags', '+faststart',
+  //     outputPath,
+  //   ]);
 
-    this.cleanup(flashedHookPath);
-    this.logger.log(`Crossfade merge complete → ${outputPath}`);
-    return outputPath;
-  }
+  //   this.cleanup(flashedHookPath);
+  //   this.logger.log(`Crossfade merge complete → ${outputPath}`);
+  //   return outputPath;
+  // }
 
   // Fallback — no transition sound
-  private async mergeWithCrossfadeNoSound(
-    hookPath: string,
-    fullVideoPath: string,
-    outputPath: string,
-    hookDuration: number,
-    xfadeOffset: number,
-    flashStartTime: number,
-  ): Promise<string> {
-    const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
+  // private async mergeWithCrossfadeNoSound(
+  //   hookPath: string,
+  //   fullVideoPath: string,
+  //   outputPath: string,
+  //   hookDuration: number,
+  //   xfadeOffset: number,
+  //   flashStartTime: number,
+  // ): Promise<string> {
+  //   const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
 
-    await this.runCommand(this.ffmpegPath, [
-      '-y',
-      '-i', hookPath,
-      '-filter_complex',
-      `[0:v]curves=` +
-        `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
-        `:all='0/0 0.3/1 1/1'[vflash]`,
-      '-map', '[vflash]',
-      '-map', '0:a',
-      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '192k',
-      flashedHookPath,
-    ]);
+  //   await this.runCommand(this.ffmpegPath, [
+  //     '-y',
+  //     '-i', hookPath,
+  //     '-filter_complex',
+  //     `[0:v]curves=` +
+  //       `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
+  //       `:all='0/0 0.3/1 1/1'[vflash]`,
+  //     '-map', '[vflash]',
+  //     '-map', '0:a',
+  //     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  //     '-c:a', 'aac', '-b:a', '192k',
+  //     flashedHookPath,
+  //   ]);
 
-    const flashedDuration = await this.getDuration(flashedHookPath);
-    const finalOffset = Math.max(0, flashedDuration - 0.5);
+  //   const flashedDuration = await this.getDuration(flashedHookPath);
+  //   const finalOffset = Math.max(0, flashedDuration - 0.5);
 
-    await this.runCommand(this.ffmpegPath, [
-      '-y',
-      '-i', flashedHookPath,
-      '-i', fullVideoPath,
-      '-filter_complex',
-      [
-        `[0:v][1:v]xfade=transition=dissolve:duration=0.5:offset=${finalOffset.toFixed(3)}[vout]`,
-        `[0:a][1:a]acrossfade=d=0.5:c1=exp:c2=exp[aout]`,
-      ].join(';'),
-      '-map', '[vout]',
-      '-map', '[aout]',
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '192k',
-      '-movflags', '+faststart',
-      outputPath,
-    ]);
+  //   await this.runCommand(this.ffmpegPath, [
+  //     '-y',
+  //     '-i', flashedHookPath,
+  //     '-i', fullVideoPath,
+  //     '-filter_complex',
+  //     [
+  //       `[0:v][1:v]xfade=transition=dissolve:duration=0.5:offset=${finalOffset.toFixed(3)}[vout]`,
+  //       `[0:a][1:a]acrossfade=d=0.5:c1=exp:c2=exp[aout]`,
+  //     ].join(';'),
+  //     '-map', '[vout]',
+  //     '-map', '[aout]',
+  //     '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+  //     '-c:a', 'aac', '-b:a', '192k',
+  //     '-movflags', '+faststart',
+  //     outputPath,
+  //   ]);
 
-    this.cleanup(flashedHookPath);
-    return outputPath;
-  }
+  //   this.cleanup(flashedHookPath);
+  //   return outputPath;
+  // }
+
+
 
   async extractAudioMp3(videoPath: string): Promise<string> {
     const outputPath = path.join(this.uploadDir, `audio-${uuidv4()}.mp3`);
@@ -419,25 +421,159 @@ export class FfmpegService {
     }
   }
 
+  async mergeWithCrossfade(hookPath: string, fullVideoPath: string): Promise<string> {
+    const outputPath = path.join(this.uploadDir, `merged-${uuidv4()}.mp4`);
+    const hookDuration = await this.getDuration(hookPath);
+
+    // Flash fires at the very last moment of the hook
+    const flashAt = Math.max(0, hookDuration - 0.04);
+    const flashDuration = 0.08; // 2 frames at 24fps — instant eye-blink
+    const soundStartMs = Math.round(flashAt * 1000);
+
+    // Hard cut — no dissolve, video starts immediately after flash
+    const xfadeOffset = Math.max(0, hookDuration - 0.04);
+
+    this.logger.log(
+      `Crossfade merge | hookDuration=${hookDuration.toFixed(3)}s | soundAt=${(soundStartMs / 1000).toFixed(3)}s | flashAt=${flashAt.toFixed(3)}s`,
+    );
+
+    const hasSoundFile = fs.existsSync(TRANSITION_SOUND_PATH);
+
+    if (!hasSoundFile) {
+      this.logger.warn(`Transition sound not found at ${TRANSITION_SOUND_PATH} — merging without sound`);
+      return this.mergeWithCrossfadeNoSound(
+        hookPath, fullVideoPath, outputPath, hookDuration, xfadeOffset, flashAt,
+      );
+    }
+
+    this.logger.log(`Transition sound found at ${TRANSITION_SOUND_PATH}`);
+
+    // ── Step 1: Apply instant white flash + sound to hook clip ─────────────────
+    const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
+
+    await this.runCommand(this.ffmpegPath, [
+      '-y',
+      '-i', hookPath,
+      '-i', TRANSITION_SOUND_PATH,
+      '-filter_complex',
+      [
+        // Instant white flash — pure white burst for 2 frames, no ramp
+        `[0:v]curves=` +
+          `enable='between(t,${flashAt.toFixed(3)},${(flashAt + flashDuration).toFixed(3)})'` +
+          `:all='0/1 1/1'[vflash]`,
+
+        // Sound fires at exact same time as flash
+        `[1:a]adelay=${soundStartMs}|${soundStartMs}[sounddelayed]`,
+
+        // Mix at full volume — sound should punch hard
+        `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 2.0[amixed]`,
+      ].join(';'),
+      '-map', '[vflash]',
+      '-map', '[amixed]',
+      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '192k',
+      flashedHookPath,
+    ]);
+
+    this.logger.log(`Flash + sound applied → ${flashedHookPath}`);
+
+    // ── Step 2: Hard cut into full video immediately after flash ───────────────
+    const flashedDuration = await this.getDuration(flashedHookPath);
+    // Cut at peak of flash so video starts on white frame then clears
+    const cutOffset = Math.max(0, flashedDuration - 0.04);
+
+    await this.runCommand(this.ffmpegPath, [
+      '-y',
+      '-i', flashedHookPath,
+      '-i', fullVideoPath,
+      '-filter_complex',
+      [
+        // fade transition — white fade out of hook into video start
+        `[0:v][1:v]xfade=transition=fade:duration=0.1:offset=${cutOffset.toFixed(3)}[vout]`,
+        // Audio: very short crossfade so sound punch carries into main video
+        `[0:a][1:a]acrossfade=d=0.1:c1=exp:c2=exp[aout]`,
+      ].join(';'),
+      '-map', '[vout]',
+      '-map', '[aout]',
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '192k',
+      '-movflags', '+faststart',
+      outputPath,
+    ]);
+
+    this.cleanup(flashedHookPath);
+    this.logger.log(`Merge complete → ${outputPath}`);
+    return outputPath;
+  }
+
+  // Fallback — no transition sound
+  private async mergeWithCrossfadeNoSound(
+    hookPath: string,
+    fullVideoPath: string,
+    outputPath: string,
+    hookDuration: number,
+    xfadeOffset: number,
+    flashAt: number,
+  ): Promise<string> {
+    const flashDuration = 0.08;
+    const flashedHookPath = path.join(this.uploadDir, `flashed-${uuidv4()}.mp4`);
+
+    await this.runCommand(this.ffmpegPath, [
+      '-y',
+      '-i', hookPath,
+      '-filter_complex',
+      `[0:v]curves=` +
+        `enable='between(t,${flashAt.toFixed(3)},${(flashAt + flashDuration).toFixed(3)})'` +
+        `:all='0/1 1/1'[vflash]`,
+      '-map', '[vflash]',
+      '-map', '0:a',
+      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '192k',
+      flashedHookPath,
+    ]);
+
+    const flashedDuration = await this.getDuration(flashedHookPath);
+    const cutOffset = Math.max(0, flashedDuration - 0.04);
+
+    await this.runCommand(this.ffmpegPath, [
+      '-y',
+      '-i', flashedHookPath,
+      '-i', fullVideoPath,
+      '-filter_complex',
+      [
+        `[0:v][1:v]xfade=transition=fade:duration=0.1:offset=${cutOffset.toFixed(3)}[vout]`,
+        `[0:a][1:a]acrossfade=d=0.1:c1=exp:c2=exp[aout]`,
+      ].join(';'),
+      '-map', '[vout]',
+      '-map', '[aout]',
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '192k',
+      '-movflags', '+faststart',
+      outputPath,
+    ]);
+
+    this.cleanup(flashedHookPath);
+    return outputPath;
+  }
+
   async extractHookOnly(hookPath: string): Promise<string> {
     const outputPath = path.join(this.uploadDir, `hook-only-${uuidv4()}.mp4`);
     const hookDuration = await this.getDuration(hookPath);
-    const flashStartTime = Math.max(0, hookDuration - 0.1);
-    const soundStartMs = Math.max(0, Math.round(flashStartTime * 1000));
+
+    const flashAt = Math.max(0, hookDuration - 0.04);
+    const flashDuration = 0.08;
+    const soundStartMs = Math.round(flashAt * 1000);
 
     this.logger.log(`Extracting hook-only clip | duration=${hookDuration.toFixed(3)}s`);
 
-    const fs = require('fs') as typeof import('fs');
-
     if (!fs.existsSync(TRANSITION_SOUND_PATH)) {
-      // No sound — just return the hook clip as-is with flash
       await this.runCommand(this.ffmpegPath, [
         '-y',
         '-i', hookPath,
         '-filter_complex',
         `[0:v]curves=` +
-          `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
-          `:all='0/0 0.3/1 1/1'[vflash]`,
+          `enable='between(t,${flashAt.toFixed(3)},${(flashAt + flashDuration).toFixed(3)})'` +
+          `:all='0/1 1/1'[vflash]`,
         '-map', '[vflash]',
         '-map', '0:a',
         '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
@@ -454,11 +590,14 @@ export class FfmpegService {
       '-i', TRANSITION_SOUND_PATH,
       '-filter_complex',
       [
+        // Instant pure white flash
         `[0:v]curves=` +
-          `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
-          `:all='0/0 0.3/1 1/1'[vflash]`,
+          `enable='between(t,${flashAt.toFixed(3)},${(flashAt + flashDuration).toFixed(3)})'` +
+          `:all='0/1 1/1'[vflash]`,
+        // Sound at exact same time
         `[1:a]adelay=${soundStartMs}|${soundStartMs}[sounddelayed]`,
-        `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 0.8[amixed]`,
+        // Full punch volume
+        `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 2.0[amixed]`,
       ].join(';'),
       '-map', '[vflash]',
       '-map', '[amixed]',
@@ -471,6 +610,58 @@ export class FfmpegService {
     this.logger.log(`Hook-only clip ready → ${outputPath}`);
     return outputPath;
   }
+  // async extractHookOnly(hookPath: string): Promise<string> {
+  //   const outputPath = path.join(this.uploadDir, `hook-only-${uuidv4()}.mp4`);
+  //   const hookDuration = await this.getDuration(hookPath);
+  //   const flashStartTime = Math.max(0, hookDuration - 0.1);
+  //   const soundStartMs = Math.max(0, Math.round(flashStartTime * 1000));
+
+  //   this.logger.log(`Extracting hook-only clip | duration=${hookDuration.toFixed(3)}s`);
+
+  //   const fs = require('fs') as typeof import('fs');
+
+  //   if (!fs.existsSync(TRANSITION_SOUND_PATH)) {
+  //     // No sound — just return the hook clip as-is with flash
+  //     await this.runCommand(this.ffmpegPath, [
+  //       '-y',
+  //       '-i', hookPath,
+  //       '-filter_complex',
+  //       `[0:v]curves=` +
+  //         `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
+  //         `:all='0/0 0.3/1 1/1'[vflash]`,
+  //       '-map', '[vflash]',
+  //       '-map', '0:a',
+  //       '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  //       '-c:a', 'aac', '-b:a', '192k',
+  //       '-movflags', '+faststart',
+  //       outputPath,
+  //     ]);
+  //     return outputPath;
+  //   }
+
+  //   await this.runCommand(this.ffmpegPath, [
+  //     '-y',
+  //     '-i', hookPath,
+  //     '-i', TRANSITION_SOUND_PATH,
+  //     '-filter_complex',
+  //     [
+  //       `[0:v]curves=` +
+  //         `enable='between(t,${flashStartTime.toFixed(3)},${(flashStartTime + 0.75).toFixed(3)})'` +
+  //         `:all='0/0 0.3/1 1/1'[vflash]`,
+  //       `[1:a]adelay=${soundStartMs}|${soundStartMs}[sounddelayed]`,
+  //       `[0:a][sounddelayed]amix=inputs=2:duration=first:weights=1 0.8[amixed]`,
+  //     ].join(';'),
+  //     '-map', '[vflash]',
+  //     '-map', '[amixed]',
+  //     '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+  //     '-c:a', 'aac', '-b:a', '192k',
+  //     '-movflags', '+faststart',
+  //     outputPath,
+  //   ]);
+
+  //   this.logger.log(`Hook-only clip ready → ${outputPath}`);
+  //   return outputPath;
+  // }
 
   private runCommand(binary: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {

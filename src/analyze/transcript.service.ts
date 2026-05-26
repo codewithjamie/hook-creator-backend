@@ -151,31 +151,6 @@ export class TranscriptService {
   }
 
   // ── Whisper ─────────────────────────────────────────────────────────────────
-  // async fromWhisper(videoPath: string): Promise<TranscriptResult> {
-  //   this.logger.log(`Whisper transcription: ${videoPath}`);
-  //   const audioPath = await this.ffmpeg.extractAudioMp3(videoPath);
-
-  //   try {
-  //     const stat = fs.statSync(audioPath);
-  //     this.logger.log(`Audio extracted: ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
-
-  //     const response = await this.openai.audio.transcriptions.create({
-  //       model: 'whisper-1',
-  //       file: fs.createReadStream(audioPath),
-  //       response_format: 'verbose_json',
-  //       timestamp_granularities: ['segment'],
-  //     }) as unknown as {
-  //       segments: Array<{ start: number; end: number; text: string }>;
-  //     };
-
-  //     const segments = this.mergeWhisperSegments(response.segments ?? []);
-  //     this.logger.log(`Whisper: ${segments.length} segments`);
-  //     return { segments, source: 'whisper' };
-  //   } finally {
-  //     this.ffmpeg.cleanup(audioPath);
-  //   }
-  // }
-
   async fromWhisper(videoPath: string): Promise<TranscriptResult> {
     this.logger.log(`Whisper transcription: ${videoPath}`);
     const audioPath = await this.ffmpeg.extractAudioMp3(videoPath);
@@ -195,34 +170,10 @@ export class TranscriptService {
 
       const segments = this.mergeWhisperSegments(response.segments ?? []);
       this.logger.log(`Whisper: ${segments.length} segments`);
-
-      // Return empty segments — caller will handle fallback
       return { segments, source: 'whisper' };
-    } catch (err) {
-      this.logger.warn(`Whisper failed: ${String(err)} — returning empty transcript`);
-      return { segments: [], source: 'whisper' };
     } finally {
       this.ffmpeg.cleanup(audioPath);
     }
-  }
-
-  // Generate evenly-spaced synthetic segments from video duration
-  generateDurationBasedSegments(
-    durationSeconds: number,
-    hookDuration = 10,
-  ): TranscriptSegment[] {
-    const segments: TranscriptSegment[] = [];
-    const interval = Math.max(hookDuration, durationSeconds / 6);
-
-    for (let start = 0; start + hookDuration <= durationSeconds; start += interval) {
-      segments.push({
-        start: Math.round(start * 10) / 10,
-        text: `[No speech detected] Video segment at ${Math.floor(start / 60)}:${String(Math.floor(start % 60)).padStart(2, '0')}`,
-        duration: hookDuration * 1000,
-      });
-    }
-
-    return segments.slice(0, 6);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────

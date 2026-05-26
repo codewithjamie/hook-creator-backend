@@ -927,25 +927,25 @@ export class AnalyzeService {
         transcriptResult = await this.transcript.fromWhisper(videoPath);
       }
 
-      // const { segments, source } = transcriptResult;
-      // if (!segments?.length) {
-      //   throw new InternalServerErrorException(
-      //     'No transcript text could be extracted from this video.',
-      //   );
-      // }
-
-      const { segments: rawSegments, source } = transcriptResult;
-      let segments = rawSegments;
-
+      const { segments, source } = transcriptResult;
       if (!segments?.length) {
-        this.logger.warn(`No transcript — using duration-based fallback`);
-        const duration = await this.ffmpeg.getVideoDuration(videoPath!);
-        if (duration < 5) {
-          throw new InternalServerErrorException('Video is too short to extract hooks from.');
-        }
-        segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
-        this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+        throw new InternalServerErrorException(
+          'No transcript text could be extracted from this video.',
+        );
       }
+
+      // const { segments: rawSegments, source } = transcriptResult;
+      // let segments = rawSegments;
+
+      // if (!segments?.length) {
+      //   this.logger.warn(`No transcript — using duration-based fallback`);
+      //   const duration = await this.ffmpeg.getVideoDuration(videoPath!);
+      //   if (duration < 5) {
+      //     throw new InternalServerErrorException('Video is too short to extract hooks from.');
+      //   }
+      //   segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
+      //   this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+      // }
 
       this.logger.log(
         `Step 2: Transcript ready | source=${source} | segments=${segments.length}`,
@@ -1087,25 +1087,25 @@ export class AnalyzeService {
 
     try {
       this.logger.log(`Step 2: Transcribing audio via Whisper | path=${file.path}`);
-      // const { segments, source } = await this.transcript.fromWhisper(file.path);
-
-      // if (!segments?.length) {
-      //   throw new InternalServerErrorException('No speech detected in this video.');
-      // }
-
-      const { segments: rawSegments, source } = await this.transcript.fromWhisper(file.path);
-
-      let segments = rawSegments;
+      const { segments, source } = await this.transcript.fromWhisper(file.path);
 
       if (!segments?.length) {
-        this.logger.warn(`No transcript found — using duration-based fallback`);
-        const duration = await this.ffmpeg.getVideoDuration(file.path);
-        if (duration < 5) {
-          throw new InternalServerErrorException('Video is too short to extract hooks from.');
-        }
-        segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
-        this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+        throw new InternalServerErrorException('No speech detected in this video.');
       }
+
+      // const { segments: rawSegments, source } = await this.transcript.fromWhisper(file.path);
+
+      // let segments = rawSegments;
+
+      // if (!segments?.length) {
+      //   this.logger.warn(`No transcript found — using duration-based fallback`);
+      //   const duration = await this.ffmpeg.getVideoDuration(file.path);
+      //   if (duration < 5) {
+      //     throw new InternalServerErrorException('Video is too short to extract hooks from.');
+      //   }
+      //   segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
+      //   this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+      // }
 
       this.logger.log(`Step 2: Transcript ready | segments=${segments.length}`);
 
@@ -1392,23 +1392,23 @@ export class AnalyzeService {
         transcriptResult = await this.transcript.fromWhisper(videoPath);
       }
 
-      // const { segments, source } = transcriptResult;
-      // if (!segments?.length) {
-      //   throw new InternalServerErrorException('No transcript found in this video.');
-      // }
-
-      const { segments: rawSegments, source } = transcriptResult;
-      let segments = rawSegments;
-
+      const { segments, source } = transcriptResult;
       if (!segments?.length) {
-        this.logger.warn(`No transcript — using duration-based fallback`);
-        const duration = await this.ffmpeg.getVideoDuration(videoPath!);
-        if (duration < 5) {
-          throw new InternalServerErrorException('Video is too short to extract hooks from.');
-        }
-        segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
-        this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+        throw new InternalServerErrorException('No transcript found in this video.');
       }
+
+      // const { segments: rawSegments, source } = transcriptResult;
+      // let segments = rawSegments;
+
+      // if (!segments?.length) {
+      //   this.logger.warn(`No transcript — using duration-based fallback`);
+      //   const duration = await this.ffmpeg.getVideoDuration(videoPath!);
+      //   if (duration < 5) {
+      //     throw new InternalServerErrorException('Video is too short to extract hooks from.');
+      //   }
+      //   segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
+      //   this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+      // }
 
       this.logger.log(`Step 2: Transcript ready | source=${source} | segments=${segments.length}`);
 

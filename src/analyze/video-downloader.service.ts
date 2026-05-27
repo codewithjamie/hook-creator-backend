@@ -56,74 +56,132 @@ export class VideoDownloaderService {
     this.logger.warn('No YOUTUBE_COOKIES env var — will rely on secret file');
   }
 
+  // private getCookiesArgs(): string[] {
+  //   const candidatePaths = [
+  //     process.env.YTDLP_COOKIES_PATH,
+  //     '/etc/secrets/cookies.txt',
+  //     this.cookiesPath,
+  //   ].filter(Boolean) as string[];
+
+  //   for (const sourcePath of candidatePaths) {
+  //     if (fs.existsSync(sourcePath)) {
+  //       try {
+  //         const writablePath = path.join(os.tmpdir(), 'yt_cookies.txt');
+  //         fs.copyFileSync(sourcePath, writablePath);
+  //         fs.chmodSync(writablePath, 0o600);
+  //         this.logger.log(`Cookies loaded from: ${sourcePath}`);
+  //         return ['--cookies', writablePath];
+  //       } catch (err) {
+  //         this.logger.warn(`Failed to copy cookies from ${sourcePath}: ${String(err)}`);
+  //       }
+  //     }
+  //   }
+
+  //   this.logger.warn('No cookies file found — bot detection may trigger');
+  //   return [];
+  // }
+
   private getCookiesArgs(): string[] {
-    const candidatePaths = [
-      process.env.YTDLP_COOKIES_PATH,
-      '/etc/secrets/cookies.txt',
-      this.cookiesPath,
-    ].filter(Boolean) as string[];
-
-    for (const sourcePath of candidatePaths) {
-      if (fs.existsSync(sourcePath)) {
-        try {
-          const writablePath = path.join(os.tmpdir(), 'yt_cookies.txt');
-          fs.copyFileSync(sourcePath, writablePath);
-          fs.chmodSync(writablePath, 0o600);
-          this.logger.log(`Cookies loaded from: ${sourcePath}`);
-          return ['--cookies', writablePath];
-        } catch (err) {
-          this.logger.warn(`Failed to copy cookies from ${sourcePath}: ${String(err)}`);
-        }
-      }
+    const cookiePath = this.config.get<string>('YT_COOKIE_FILE');
+    if (cookiePath && fs.existsSync(cookiePath)) {
+      this.logger.log(`Cookies found at ${cookiePath} (${fs.statSync(cookiePath).size} bytes)`);
+      return ['--cookies', cookiePath];
     }
-
-    this.logger.warn('No cookies file found — bot detection may trigger');
+    this.logger.warn('No cookie file found — skipping cookies');
     return [];
   }
+
+  // async download(url: string): Promise<string> {
+  //   const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
+  //   this.logger.log(`Downloading video → ${outputPath}`);
+
+  //   // ── YouTube ─────────────────────────────────────────────────────────────
+  //   if (url.includes('youtube.com') || url.includes('youtu.be')) {
+  //     // 1. Try Piped
+  //     const pipedUrl = await this.resolveViaPiped(url);
+  //     if (pipedUrl) {
+  //       try {
+  //         await this.downloadDirectUrl(pipedUrl, outputPath);
+  //         this.logger.log(`YouTube via Piped complete → ${outputPath}`);
+  //         return outputPath;
+  //       } catch (err) {
+  //         this.logger.warn(`Piped stream failed: ${err instanceof Error ? err.message : String(err)}`);
+  //       }
+  //     }
+
+  //     // 2. Try Invidious
+  //     const invidiousUrl = await this.resolveViaInvidious(url);
+  //     if (invidiousUrl) {
+  //       try {
+  //         await this.downloadDirectUrl(invidiousUrl, outputPath);
+  //         this.logger.log(`YouTube via Invidious complete → ${outputPath}`);
+  //         return outputPath;
+  //       } catch (err) {
+  //         this.logger.warn(`Invidious stream failed: ${err instanceof Error ? err.message : String(err)}`);
+  //       }
+  //     }
+
+  //     // 3. yt-dlp with cookies last resort
+  //     try {
+  //       await this.runYtDlp(this.buildArgs(url, outputPath));
+  //       this.logger.log(`YouTube via yt-dlp complete → ${outputPath}`);
+  //       return outputPath;
+  //     } catch (err) {
+  //       throw new InternalServerErrorException(
+  //         `YouTube download failed. Please upload the video directly instead.`,
+  //       );
+  //     }
+  //   }
+
+  //   // ── Rumble ──────────────────────────────────────────────────────────────
+  //   if (url.includes('rumble.com')) {
+  //     try {
+  //       const embedUrl = await this.resolveRumbleUrl(url);
+  //       this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
+  //       await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+  //       this.logger.log(`Rumble download complete → ${outputPath}`);
+  //       return outputPath;
+  //     } catch (err) {
+  //       this.logger.warn(`Rumble embed failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
+  //     }
+  //   }
+
+  //   // ── Generic yt-dlp fallback ──────────────────────────────────────────────
+  //   await this.runYtDlp(this.buildArgs(url, outputPath));
+  //   this.logger.log(`Download complete → ${outputPath}`);
+  //   return outputPath;
+  // }
 
   async download(url: string): Promise<string> {
     const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
     this.logger.log(`Downloading video → ${outputPath}`);
 
-    // ── YouTube ─────────────────────────────────────────────────────────────
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      // 1. Try Piped
-      const pipedUrl = await this.resolveViaPiped(url);
-      if (pipedUrl) {
+      // Try yt-dlp with proxy first (fastest, most reliable when proxy is healthy)
+      const proxyUrl = this.config.get<string>('PROXY_URL');
+      if (proxyUrl) {
         try {
-          await this.downloadDirectUrl(pipedUrl, outputPath);
-          this.logger.log(`YouTube via Piped complete → ${outputPath}`);
+          await this.runYtDlp(this.buildYouTubeArgs(url, outputPath, proxyUrl));
+          this.logger.log(`YouTube via yt-dlp+proxy complete → ${outputPath}`);
           return outputPath;
         } catch (err) {
-          this.logger.warn(`Piped stream failed: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.warn(`yt-dlp+proxy failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
-      // 2. Try Invidious
-      const invidiousUrl = await this.resolveViaInvidious(url);
-      if (invidiousUrl) {
-        try {
-          await this.downloadDirectUrl(invidiousUrl, outputPath);
-          this.logger.log(`YouTube via Invidious complete → ${outputPath}`);
-          return outputPath;
-        } catch (err) {
-          this.logger.warn(`Invidious stream failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-
-      // 3. yt-dlp with cookies last resort
+      // Fallback: yt-dlp without proxy (android client bypasses some bot checks)
       try {
-        await this.runYtDlp(this.buildArgs(url, outputPath));
-        this.logger.log(`YouTube via yt-dlp complete → ${outputPath}`);
+        await this.runYtDlp(this.buildYouTubeArgs(url, outputPath, null));
+        this.logger.log(`YouTube via yt-dlp (no proxy) complete → ${outputPath}`);
         return outputPath;
       } catch (err) {
         throw new InternalServerErrorException(
-          `YouTube download failed. Please upload the video directly instead.`,
+          'YouTube download failed. Please upload the video directly instead.',
         );
       }
     }
 
-    // ── Rumble ──────────────────────────────────────────────────────────────
+    // Rumble + generic unchanged...
     if (url.includes('rumble.com')) {
       try {
         const embedUrl = await this.resolveRumbleUrl(url);
@@ -307,6 +365,45 @@ export class VideoDownloaderService {
   //   return args;
   // }
 
+  // private buildArgs(url: string, outputPath: string): string[] {
+  //   const args = [
+  //     '--no-playlist',
+  //     '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+  //     '--merge-output-format', 'mp4',
+  //     '--output', outputPath,
+  //     '--no-warnings',
+  //     '--socket-timeout', '30',
+  //     '--retries', '3',
+  //     '--fragment-retries', '3',
+  //     '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  //     '--add-header', 'Accept-Language:en-US,en;q=0.9',
+  //   ];
+
+  //   // Use proxy for YouTube — this is the main bot bypass
+  //   const proxyUrl = this.config.get<string>('PROXY_URL');
+  //   if (proxyUrl && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+  //     args.push('--proxy', proxyUrl);
+  //     // Tell yt-dlp to use web client which works better with proxies
+  //     args.push('--extractor-args', 'youtube:player_client=web,mweb');
+  //   }
+
+  //   // Cookies as secondary fallback only
+  //   args.push(...this.getCookiesArgs());
+
+  //   const ytUser = this.config.get<string>('YT_USERNAME');
+  //   const ytPass = this.config.get<string>('YT_PASSWORD');
+  //   if (ytUser && ytPass) {
+  //     args.push('--username', ytUser, '--password', ytPass);
+  //   }
+
+  //   if (url.includes('rumble.com')) {
+  //     args.push('--add-header', 'Referer:https://rumble.com');
+  //   }
+
+  //   args.push(url);
+  //   return args;
+  // }
+
   private buildArgs(url: string, outputPath: string): string[] {
     const args = [
       '--no-playlist',
@@ -321,25 +418,41 @@ export class VideoDownloaderService {
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
     ];
 
-    // Use proxy for YouTube — this is the main bot bypass
+    // 1. Cookies first — primary trust signal for YouTube
+    args.push(...this.getCookiesArgs());
+
+    // 2. Proxy + player client second
     const proxyUrl = this.config.get<string>('PROXY_URL');
     if (proxyUrl && (url.includes('youtube.com') || url.includes('youtu.be'))) {
       args.push('--proxy', proxyUrl);
-      // Tell yt-dlp to use web client which works better with proxies
-      args.push('--extractor-args', 'youtube:player_client=web,mweb');
-    }
-
-    // Cookies as secondary fallback only
-    args.push(...this.getCookiesArgs());
-    
-    const ytUser = this.config.get<string>('YT_USERNAME');
-    const ytPass = this.config.get<string>('YT_PASSWORD');
-    if (ytUser && ytPass) {
-      args.push('--username', ytUser, '--password', ytPass);
+      args.push('--extractor-args', 'youtube:player_client=tv_embedded');
     }
 
     if (url.includes('rumble.com')) {
       args.push('--add-header', 'Referer:https://rumble.com');
+    }
+
+    args.push(url);
+    return args;
+  }
+
+  
+  private buildYouTubeArgs(url: string, outputPath: string, proxyUrl: string | null): string[] {
+    const args = [
+      '--no-playlist',
+      '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+      '--merge-output-format', 'mp4',
+      '--output', outputPath,
+      '--no-warnings',
+      '--socket-timeout', '30',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      // android_vr client bypasses bot detection without cookies
+      '--extractor-args', 'youtube:player_client=android_vr',
+    ];
+
+    if (proxyUrl) {
+      args.push('--proxy', proxyUrl);
     }
 
     args.push(url);

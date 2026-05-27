@@ -81,13 +81,39 @@ export class VideoDownloaderService {
   //   return [];
   // }
 
+  // private getCookiesArgs(): string[] {
+  //   const cookiePath = this.config.get<string>('YT_COOKIE_FILE');
+  //   if (cookiePath && fs.existsSync(cookiePath)) {
+  //     this.logger.log(`Cookies found at ${cookiePath} (${fs.statSync(cookiePath).size} bytes)`);
+  //     return ['--cookies', cookiePath];
+  //   }
+  //   this.logger.warn('No cookie file found — skipping cookies');
+  //   return [];
+  // }
+
   private getCookiesArgs(): string[] {
-    const cookiePath = this.config.get<string>('YT_COOKIE_FILE');
-    if (cookiePath && fs.existsSync(cookiePath)) {
-      this.logger.log(`Cookies found at ${cookiePath} (${fs.statSync(cookiePath).size} bytes)`);
-      return ['--cookies', cookiePath];
+    const candidatePaths = [
+      this.config.get<string>('YTDLP_COOKIES_PATH'),
+      '/etc/secrets/cookies.txt',
+      this.cookiesPath,
+    ].filter(Boolean) as string[];
+
+    for (const sourcePath of candidatePaths) {
+      if (!fs.existsSync(sourcePath)) continue;
+
+      try {
+        // yt-dlp writes back to the cookie file — always copy to writable tmp
+        const writablePath = path.join(os.tmpdir(), `yt_cookies_${uuidv4()}.txt`);
+        fs.copyFileSync(sourcePath, writablePath);
+        fs.chmodSync(writablePath, 0o600);
+        this.logger.log(`Cookies copied from ${sourcePath} → ${writablePath} (${fs.statSync(writablePath).size} bytes)`);
+        return ['--cookies', writablePath];
+      } catch (err) {
+        this.logger.warn(`Failed to copy cookies from ${sourcePath}: ${String(err)}`);
+      }
     }
-    this.logger.warn('No cookie file found — skipping cookies');
+
+    this.logger.warn('No cookies file found — bot detection may trigger');
     return [];
   }
 
@@ -507,12 +533,18 @@ export class VideoDownloaderService {
     }
   }
 
-  private runYtDlp(args: string[]): Promise<void> {
+  private async runYtDlp(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const proc = spawn('yt-dlp', args);
       const err: Buffer[] = [];
       proc.stderr?.on('data', (d: Buffer) => err.push(d));
       proc.on('close', (code) => {
+        // Clean up any temp cookie file passed via --cookies
+        const cookieIdx = args.indexOf('--cookies');
+        if (cookieIdx !== -1 && args[cookieIdx + 1]?.includes(os.tmpdir())) {
+          try { fs.unlinkSync(args[cookieIdx + 1]); } catch {}
+        }
+
         if (code === 0) return resolve();
         const msg = Buffer.concat(err).toString().split('\n').slice(-3).join('\n');
         reject(new InternalServerErrorException(`yt-dlp failed: ${msg}`));

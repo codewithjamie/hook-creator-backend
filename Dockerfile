@@ -100,4 +100,5 @@ ENV PORT=3000
 ENV UPLOAD_DIR=/tmp/openedge-uploads
 
 # Start
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "dist/main"]

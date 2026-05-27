@@ -477,21 +477,23 @@ export class VideoDownloaderService {
   private buildArgs(url: string, outputPath: string, useProxy = true): string[] {
     const args = [
       '--no-playlist',
-      '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+      '--format', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
       '--merge-output-format', 'mp4',
       '--output', outputPath,
       '--no-warnings',
       '--socket-timeout', '30',
       '--retries', '3',
       '--fragment-retries', '3',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      '--add-header', 'Accept-Language:en-US,en;q=0.9',
     ];
 
     const proxyUrl = this.config.get<string>('PROXY_URL');
     if (useProxy && proxyUrl) {
       args.push('--proxy', proxyUrl);
-      args.push('--extractor-args', 'youtube:player_client=web,mweb');
+    }
+
+    // android_vr exposes more formats and bypasses bot detection
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      args.push('--extractor-args', 'youtube:player_client=android_vr');
     }
 
     args.push(...this.getCookiesArgs());

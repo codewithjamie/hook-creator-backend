@@ -11,11 +11,12 @@ const PIPED_INSTANCES = [
 ];
 
 const INVIDIOUS_INSTANCES = [
-  'https://inv.nadeko.net',
-  'https://invidious.darkness.services',
-  'https://invidious.reallyaweso.me',
-  'https://invidious.perennialte.ch',
+  'https://invidious.jing.rocks',
+  'https://inv.tux.pizza',
+  'https://invidious.io.lol',
+  'https://invidious.privacydev.net',
 ];
+
 
 @Injectable()
 export class VideoDownloaderService {
@@ -279,6 +280,33 @@ export class VideoDownloaderService {
   }
 
   // ── yt-dlp args builder ────────────────────────────────────────────────────
+  // private buildArgs(url: string, outputPath: string): string[] {
+  //   const args = [
+  //     '--no-playlist',
+  //     '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+  //     '--merge-output-format', 'mp4',
+  //     '--output', outputPath,
+  //     '--no-warnings',
+  //     '--socket-timeout', '30',
+  //     '--retries', '3',
+  //     '--fragment-retries', '3',
+  //     '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  //     '--add-header', 'Accept-Language:en-US,en;q=0.9',
+  //   ];
+
+  //   args.push(...this.getCookiesArgs());
+
+  //   if (url.includes('rumble.com')) {
+  //     args.push('--add-header', 'Referer:https://rumble.com');
+  //   }
+
+  //   const proxyUrl = this.config.get<string>('PROXY_URL');
+  //   if (proxyUrl) args.push('--proxy', proxyUrl);
+
+  //   args.push(url);
+  //   return args;
+  // }
+
   private buildArgs(url: string, outputPath: string): string[] {
     const args = [
       '--no-playlist',
@@ -293,14 +321,26 @@ export class VideoDownloaderService {
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
     ];
 
+    // Use proxy for YouTube — this is the main bot bypass
+    const proxyUrl = this.config.get<string>('PROXY_URL');
+    if (proxyUrl && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+      args.push('--proxy', proxyUrl);
+      // Tell yt-dlp to use web client which works better with proxies
+      args.push('--extractor-args', 'youtube:player_client=web,mweb');
+    }
+
+    // Cookies as secondary fallback only
     args.push(...this.getCookiesArgs());
+    
+    const ytUser = this.config.get<string>('YT_USERNAME');
+    const ytPass = this.config.get<string>('YT_PASSWORD');
+    if (ytUser && ytPass) {
+      args.push('--username', ytUser, '--password', ytPass);
+    }
 
     if (url.includes('rumble.com')) {
       args.push('--add-header', 'Referer:https://rumble.com');
     }
-
-    const proxyUrl = this.config.get<string>('PROXY_URL');
-    if (proxyUrl) args.push('--proxy', proxyUrl);
 
     args.push(url);
     return args;

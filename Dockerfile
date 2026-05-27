@@ -63,12 +63,20 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
 RUN ffmpeg -version | head -1 \
     && yt-dlp --version
 
+# After the yt-dlp install line, add:
+RUN yt-dlp -U || true
+
 # ── App files ─────────────────────────────────────────────────────────────────
 # Copy built app and production node_modules from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/assets ./assets
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+# Update yt-dlp on every container start, then hand off to the app
+RUN echo '#!/bin/sh\nyt-dlp -U 2>/dev/null || true\nexec "$@"' > /entrypoint.sh \
+    && chmod +x /entrypoint.sh
 
 # ── Runtime config ────────────────────────────────────────────────────────────
 # Create upload temp directory

@@ -133,3 +133,11 @@ export class HookOnlyDto {
   @IsEnum(['auto', 'youtube_captions', 'whisper'])
   transcript_source?: 'auto' | 'youtube_captions' | 'whisper';
 }
+
+export class MergeHookDto {
+  @ApiProperty({ description: 'Analysis ID from a hook-only result' })
+  analysisId: string;
+
+  @ApiProperty({ description: 'Hook rank to merge (1-6)', example: 1 })
+  hookRank: number;
+}

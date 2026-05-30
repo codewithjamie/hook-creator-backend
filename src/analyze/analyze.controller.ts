@@ -28,6 +28,7 @@ import {
   DetectPlatformResponse,
   AnalysisResponse,
   HookOnlyDto,
+  MergeHookDto, 
 } from './dto/analyze.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
@@ -192,5 +193,22 @@ export class AnalyzeController {
     @Body() dto: ExtractClipDto,
   ): Promise<AnalysisResponse> {
     return this.analyzeService.extractClip(req.user.id, req.user.email, dto);
+  }
+
+  @Post('merge-hook')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Merge a selected hook with its original full video — costs 3 credits',
+    description: 'Takes a hook-only analysis result and merges the chosen hook clip with the original video download.',
+  })
+  @ApiResponse({ status: 200, type: AnalysisResponse })
+  @ApiResponse({ status: 402, description: 'Insufficient credits' })
+  mergeHook(
+    @Request() req: { user: { id: string; email: string } },
+    @Body() dto: MergeHookDto,
+  ): Promise<AnalysisResponse> {
+    return this.analyzeService.mergeHook(req.user.id, req.user.email, dto);
   }
 }

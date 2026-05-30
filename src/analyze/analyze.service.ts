@@ -772,7 +772,8 @@ import {
   DetectPlatformResponse,
   AnalysisResponse,
   HookDto,
-  HookOnlyDto,
+  HookOnlyDto,  
+  MergeHookDto,
 } from './dto/analyze.dto';
 
 const YOUTUBE_ID_RE = /(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
@@ -1495,7 +1496,134 @@ export class AnalyzeService {
     }
   }
 
-  // ─── Private Helpers ──────────────────────────────────────────────────────
+  async mergeHook(
+    userId: string,
+    userEmail: string,
+    dto: MergeHookDto,
+  ): Promise<AnalysisResponse> {
+    this.logger.log(
+      `Step 0: Merge-hook request | user=${userEmail} | analysisId=${dto.analysisId} | hookRank=${dto.hookRank}`,
+    );
+
+    // ── Load original hook-only analysis ──────────────────────────────────────
+    const original = await this.findOwnedAnalysis(userId, dto.analysisId);
+
+    if (!original.fullHooks?.length) {
+      throw new BadRequestException('This analysis has no hooks to merge from');
+    }
+
+    if (!original.sourceUrl) {
+      throw new BadRequestException('Original analysis has no source URL to download');
+    }
+
+    const hooks = original.fullHooks as HookCandidate[];
+    const chosenHook = hooks.find((h) => h.rank === dto.hookRank);
+    if (!chosenHook) {
+      throw new BadRequestException(`Hook rank ${dto.hookRank} not found in analysis`);
+    }
+
+    const hookClipUrl = (chosenHook.clip as { url: string } | null)?.url;
+    if (!hookClipUrl) {
+      throw new BadRequestException(`Hook rank ${dto.hookRank} has no generated clip`);
+    }
+
+    this.logger.log(
+      `Step 1: Hook selected | rank=${dto.hookRank} | score=${chosenHook.hookScore} | clip=${hookClipUrl}`,
+    );
+
+    // ── Deduct credits ────────────────────────────────────────────────────────
+    const creditsRemaining = await this.credits.spendCredits(
+      userId,
+      COST_REBUILD,
+      `Merge hook rank ${dto.hookRank} from analysis ${dto.analysisId}`,
+    );
+    this.logger.log(
+      `Step 2: Credits deducted | user=${userEmail} | spent=${COST_REBUILD} | remaining=${creditsRemaining}`,
+    );
+
+    const record = await this.analyses.save(
+      this.analyses.create({
+        userId,
+        sourceUrl: original.sourceUrl,
+        platform: original.platform,
+        status: 'processing',
+        creditsUsed: COST_REBUILD,
+        videoTitle: original.videoTitle,
+      }),
+    );
+
+    let videoPath: string | null = null;
+    let hookPath: string | null = null;
+    let mergedPath: string | null = null;
+
+    try {
+      // ── Step 3: Download original video ───────────────────────────────────
+      this.logger.log(`Step 3: Downloading original video | url=${original.sourceUrl}`);
+      videoPath = await this.downloader.download(original.sourceUrl);
+      this.logger.log(`Step 3: Download complete`);
+
+      // ── Step 4: Duration-based credit deduction ────────────────────────────
+      const { durationSeconds } = await this.deductDurationCredits(
+        userId, userEmail, videoPath, `merge-hook ${original.sourceUrl}`, record.id,
+      );
+
+      // ── Step 5: Extract hook clip from original video using saved timestamps ─
+      this.logger.log(
+        `Step 5: Extracting hook clip | ${chosenHook.startTime}s→${chosenHook.endTime}s`,
+      );
+      hookPath = await this.ffmpeg.extractClip(
+        videoPath,
+        chosenHook.startTime,
+        chosenHook.endTime,
+      );
+
+      // ── Step 6: Merge hook with full video ────────────────────────────────
+      this.logger.log(`Step 6: Merging hook with full video`);
+      mergedPath = await this.ffmpeg.mergeWithCrossfade(hookPath, videoPath);
+
+      // ── Step 7: Upload to Cloudinary ──────────────────────────────────────
+      this.logger.log(`Step 7: Uploading to Cloudinary`);
+      const clipUrl = await this.cloudinary.uploadVideo(
+        mergedPath,
+        `merge-hook-${record.id}-rank${dto.hookRank}`,
+      );
+      this.logger.log(`Step 7: Uploaded | url=${clipUrl}`);
+
+      await this.analyses.update(record.id, {
+        status: 'complete',
+        clipUrl,
+        startTime: chosenHook.startTime,
+        endTime: chosenHook.endTime,
+        bridgeSentence: chosenHook.bridgeSentence,
+        whySelected: chosenHook.whySelected,
+        hookScore: chosenHook.hookScore,
+        transcriptSource: original.transcriptSource,
+        fullHooks: original.fullHooks,
+        videoTitle: original.videoTitle ?? 'Untitled',
+        videoDurationSeconds: durationSeconds,
+      });
+
+      this.logger.log(
+        `✅ Merge-hook done | user=${userEmail} | id=${record.id} | clip=${clipUrl}`,
+      );
+
+      const updated = await this.analyses.findOneOrFail({ where: { id: record.id } });
+      return this.toResponse(updated, creditsRemaining);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `✗ Merge-hook failed | user=${userEmail} | id=${record.id} | error=${message}`,
+      );
+      await this.analyses.update(record.id, { status: 'failed', errorMessage: message });
+      await this.refundCredit(userId, userEmail, COST_REBUILD, record.id);
+      throw err;
+    } finally {
+      const toClean = [videoPath, hookPath, mergedPath].filter(Boolean) as string[];
+      if (toClean.length) this.ffmpeg.cleanup(...toClean);
+    }
+  }
+
+    // ─── Private Helpers ──────────────────────────────────────────────────────
 
   private async findOwnedAnalysis(userId: string, id: string): Promise<AnalysisEntity> {
     const record = await this.analyses.findOne({ where: { id, userId } });

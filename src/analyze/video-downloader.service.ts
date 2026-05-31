@@ -117,78 +117,78 @@ export class VideoDownloaderService {
     return [];
   }
 
-  async download(url: string): Promise<string> {
-    const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
-    this.logger.log(`Downloading video → ${outputPath}`);
+  // async download(url: string): Promise<string> {
+  //   const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
+  //   this.logger.log(`Downloading video → ${outputPath}`);
 
-    // ── YouTube ─────────────────────────────────────────────────────────────
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      // 1. Try Piped
-      const pipedUrl = await this.resolveViaPiped(url);
-      if (pipedUrl) {
-        try {
-          await this.downloadDirectUrl(pipedUrl, outputPath);
-          this.logger.log(`YouTube via Piped complete → ${outputPath}`);
-          return outputPath;
-        } catch (err) {
-          this.logger.warn(`Piped stream failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+  //   // ── YouTube ─────────────────────────────────────────────────────────────
+  //   if (url.includes('youtube.com') || url.includes('youtu.be')) {
+  //     // 1. Try Piped
+  //     const pipedUrl = await this.resolveViaPiped(url);
+  //     if (pipedUrl) {
+  //       try {
+  //         await this.downloadDirectUrl(pipedUrl, outputPath);
+  //         this.logger.log(`YouTube via Piped complete → ${outputPath}`);
+  //         return outputPath;
+  //       } catch (err) {
+  //         this.logger.warn(`Piped stream failed: ${err instanceof Error ? err.message : String(err)}`);
+  //       }
+  //     }
 
-      // 2. Try Invidious
-      const invidiousUrl = await this.resolveViaInvidious(url);
-      if (invidiousUrl) {
-        try {
-          await this.downloadDirectUrl(invidiousUrl, outputPath);
-          this.logger.log(`YouTube via Invidious complete → ${outputPath}`);
-          return outputPath;
-        } catch (err) {
-          this.logger.warn(`Invidious stream failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+  //     // 2. Try Invidious
+  //     const invidiousUrl = await this.resolveViaInvidious(url);
+  //     if (invidiousUrl) {
+  //       try {
+  //         await this.downloadDirectUrl(invidiousUrl, outputPath);
+  //         this.logger.log(`YouTube via Invidious complete → ${outputPath}`);
+  //         return outputPath;
+  //       } catch (err) {
+  //         this.logger.warn(`Invidious stream failed: ${err instanceof Error ? err.message : String(err)}`);
+  //       }
+  //     }
 
-      // 3. Try yt-dlp with proxy
-      const proxyUrl = this.config.get<string>('PROXY_URL');
-      if (proxyUrl) {
-        try {
-          await this.runYtDlp(this.buildArgs(url, outputPath, true));
-          this.logger.log(`YouTube via yt-dlp+proxy complete → ${outputPath}`);
-          return outputPath;
-        } catch (err) {
-          this.logger.warn(`yt-dlp+proxy failed: ${err instanceof Error ? err.message : String(err)} — trying without proxy`);
-        }
-      }
+  //     // 3. Try yt-dlp with proxy
+  //     const proxyUrl = this.config.get<string>('PROXY_URL');
+  //     if (proxyUrl) {
+  //       try {
+  //         await this.runYtDlp(this.buildArgs(url, outputPath, true));
+  //         this.logger.log(`YouTube via yt-dlp+proxy complete → ${outputPath}`);
+  //         return outputPath;
+  //       } catch (err) {
+  //         this.logger.warn(`yt-dlp+proxy failed: ${err instanceof Error ? err.message : String(err)} — trying without proxy`);
+  //       }
+  //     }
 
-      // 4. Try yt-dlp without proxy + cookies
-      try {
-        await this.runYtDlp(this.buildArgs(url, outputPath, false));
-        this.logger.log(`YouTube via yt-dlp (no proxy) complete → ${outputPath}`);
-        return outputPath;
-      } catch (err) {
-        throw new InternalServerErrorException(
-          `YouTube download failed. Please upload the video directly instead.`,
-        );
-      }
-    }
+  //     // 4. Try yt-dlp without proxy + cookies
+  //     try {
+  //       await this.runYtDlp(this.buildArgs(url, outputPath, false));
+  //       this.logger.log(`YouTube via yt-dlp (no proxy) complete → ${outputPath}`);
+  //       return outputPath;
+  //     } catch (err) {
+  //       throw new InternalServerErrorException(
+  //         `YouTube download failed. Please upload the video directly instead.`,
+  //       );
+  //     }
+  //   }
 
-    // ── Rumble ──────────────────────────────────────────────────────────────
-    if (url.includes('rumble.com')) {
-      try {
-        const embedUrl = await this.resolveRumbleUrl(url);
-        this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
-        await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
-        this.logger.log(`Rumble download complete → ${outputPath}`);
-        return outputPath;
-      } catch (err) {
-        this.logger.warn(`Rumble embed failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
-      }
-    }
+  //   // ── Rumble ──────────────────────────────────────────────────────────────
+  //   if (url.includes('rumble.com')) {
+  //     try {
+  //       const embedUrl = await this.resolveRumbleUrl(url);
+  //       this.logger.log(`Rumble: using embed URL → ${embedUrl}`);
+  //       await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+  //       this.logger.log(`Rumble download complete → ${outputPath}`);
+  //       return outputPath;
+  //     } catch (err) {
+  //       this.logger.warn(`Rumble embed failed: ${err instanceof Error ? err.message : String(err)} — trying original URL`);
+  //     }
+  //   }
 
-    // ── Generic yt-dlp fallback ──────────────────────────────────────────────
-    await this.runYtDlp(this.buildArgs(url, outputPath));
-    this.logger.log(`Download complete → ${outputPath}`);
-    return outputPath;
-  }
+  //   // ── Generic yt-dlp fallback ──────────────────────────────────────────────
+  //   await this.runYtDlp(this.buildArgs(url, outputPath));
+  //   this.logger.log(`Download complete → ${outputPath}`);
+  //   return outputPath;
+  // }
 
   // async download(url: string): Promise<string> {
   //   const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
@@ -238,7 +238,138 @@ export class VideoDownloaderService {
   //   return outputPath;
   // }
 
+
+
   // ── Piped resolver ─────────────────────────────────────────────────────────
+  
+
+  async download(url: string): Promise<string> {
+    const outputPath = path.join(this.uploadDir, `video-${uuidv4()}.mp4`);
+    this.logger.log(`Downloading video → ${outputPath}`);
+
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      const videoId = url.match(/(?:v=|youtu\.be\/|live\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      if (!videoId) throw new InternalServerErrorException('Invalid YouTube URL');
+
+      // 1. Resolve stream URL via proxy (KB, not MB)
+      const streamUrl = await this.resolveYouTubeStreamUrl(videoId);
+      if (streamUrl) {
+        try {
+          // 2. Download directly from YouTube CDN (bypasses proxy entirely)
+          await this.downloadDirectUrl(streamUrl, outputPath);
+          this.logger.log(`YouTube via CDN direct complete → ${outputPath}`);
+          return outputPath;
+        } catch (err) {
+          this.logger.warn(`CDN direct download failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // 3. Last resort: yt-dlp with android_vr (no proxy)
+      try {
+        await this.runYtDlp(this.buildArgs(url, outputPath));
+        this.logger.log(`YouTube via yt-dlp fallback complete → ${outputPath}`);
+        return outputPath;
+      } catch (err) {
+        throw new InternalServerErrorException(
+          'YouTube download failed. Please upload the video directly instead.',
+        );
+      }
+    }
+
+    // Rumble + generic unchanged
+    if (url.includes('rumble.com')) {
+      try {
+        const embedUrl = await this.resolveRumbleUrl(url);
+        await this.runYtDlp(this.buildArgs(embedUrl, outputPath));
+        this.logger.log(`Rumble download complete → ${outputPath}`);
+        return outputPath;
+      } catch (err) {
+        this.logger.warn(`Rumble failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    await this.runYtDlp(this.buildArgs(url, outputPath));
+    this.logger.log(`Download complete → ${outputPath}`);
+    return outputPath;
+  }
+
+  // Resolves a direct CDN stream URL using proxy for auth only
+  private async resolveYouTubeStreamUrl(videoId: string): Promise<string | null> {
+    const proxyUrl = this.config.get<string>('PROXY_URL');
+    const proxyAgent = proxyUrl ? this.buildProxyAgent(proxyUrl) : undefined;
+
+    // Try YouTube's own innertube API — tiny request, returns signed CDN URLs
+    try {
+      this.logger.log(`Resolving stream via Innertube | videoId=${videoId}`);
+      const res = await fetch('https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+          'X-YouTube-Client-Name': '3',
+          'X-YouTube-Client-Version': '19.09.37',
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: 'ANDROID',
+              clientVersion: '19.09.37',
+              androidSdkVersion: 30,
+            },
+          },
+        }),
+        // @ts-expect-error - dispatcher is node-fetch/undici specific
+        dispatcher: proxyAgent,
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        this.logger.warn(`Innertube returned ${res.status}`);
+        return null;
+      }
+
+      const data = await res.json() as {
+        streamingData?: {
+          formats?: Array<{ url?: string; qualityLabel?: string; mimeType?: string; itag?: number }>;
+          adaptiveFormats?: Array<{ url?: string; qualityLabel?: string; mimeType?: string }>;
+        };
+        playabilityStatus?: { status: string; reason?: string };
+      };
+
+      if (data.playabilityStatus?.status !== 'OK') {
+        this.logger.warn(`Innertube: video not playable — ${data.playabilityStatus?.reason}`);
+        return null;
+      }
+
+      // Prefer muxed formats (audio+video in one) to avoid FFmpeg merge
+      const formats = data.streamingData?.formats ?? [];
+      const stream =
+        formats.find(f => f.qualityLabel === '720p' && f.mimeType?.includes('video/mp4')) ??
+        formats.find(f => f.mimeType?.includes('video/mp4')) ??
+        formats[0];
+
+      if (!stream?.url) {
+        this.logger.warn('Innertube: no usable format found');
+        return null;
+      }
+
+      this.logger.log(`Innertube resolved | quality=${stream.qualityLabel}`);
+      return stream.url;
+    } catch (err) {
+      this.logger.warn(`Innertube failed: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
+  private buildProxyAgent(proxyUrl: string) {
+    // Uses undici (built into Node 18+) for proxy support with fetch
+    const { ProxyAgent } = require('undici') as typeof import('undici');
+    return new ProxyAgent(proxyUrl);
+  }
+
+
+  
   private async resolveViaPiped(url: string): Promise<string | null> {
     const videoId = url.match(/(?:v=|youtu\.be\/|live\/)([a-zA-Z0-9_-]{11})/)?.[1];
     if (!videoId) return null;
@@ -474,7 +605,39 @@ export class VideoDownloaderService {
   //   return args;
   // }
 
-  private buildArgs(url: string, outputPath: string, useProxy = true): string[] {
+  // private buildArgs(url: string, outputPath: string, useProxy = true): string[] {
+  //   const args = [
+  //     '--no-playlist',
+  //     '--format', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+  //     '--merge-output-format', 'mp4',
+  //     '--output', outputPath,
+  //     '--no-warnings',
+  //     '--socket-timeout', '30',
+  //     '--retries', '3',
+  //     '--fragment-retries', '3',
+  //   ];
+
+  //   const proxyUrl = this.config.get<string>('PROXY_URL');
+  //   if (useProxy && proxyUrl) {
+  //     args.push('--proxy', proxyUrl);
+  //   }
+
+  //   // android_vr exposes more formats and bypasses bot detection
+  //   if (url.includes('youtube.com') || url.includes('youtu.be')) {
+  //     args.push('--extractor-args', 'youtube:player_client=android_vr');
+  //   }
+
+  //   args.push(...this.getCookiesArgs());
+
+  //   if (url.includes('rumble.com')) {
+  //     args.push('--add-header', 'Referer:https://rumble.com');
+  //   }
+
+  //   args.push(url);
+  //   return args;
+  // }
+
+  private buildArgs(url: string, outputPath: string): string[] {
     const args = [
       '--no-playlist',
       '--format', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
@@ -484,17 +647,8 @@ export class VideoDownloaderService {
       '--socket-timeout', '30',
       '--retries', '3',
       '--fragment-retries', '3',
+      '--extractor-args', 'youtube:player_client=android_vr',
     ];
-
-    const proxyUrl = this.config.get<string>('PROXY_URL');
-    if (useProxy && proxyUrl) {
-      args.push('--proxy', proxyUrl);
-    }
-
-    // android_vr exposes more formats and bypasses bot detection
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      args.push('--extractor-args', 'youtube:player_client=android_vr');
-    }
 
     args.push(...this.getCookiesArgs());
 

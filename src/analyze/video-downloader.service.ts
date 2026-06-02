@@ -11,10 +11,10 @@ const PIPED_INSTANCES = [
 ];
 
 const INVIDIOUS_INSTANCES = [
-  'https://invidious.jing.rocks',
-  'https://inv.tux.pizza',
-  'https://invidious.io.lol',
-  'https://invidious.privacydev.net',
+  'https://iv.datura.network',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.incogniweb.net',
+  'https://yt.dragonbanshee.com',
 ];
 
 @Injectable()
@@ -398,8 +398,6 @@ export class VideoDownloaderService {
   private buildArgs(url: string, outputPath: string, useProxy = true): string[] {
     const args = [
       '--no-playlist',
-      // Flexible format: try 480p first, fall back to any available format
-      '--format', 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
       '--output', outputPath,
       '--no-warnings',
@@ -414,6 +412,14 @@ export class VideoDownloaderService {
     if (useProxy && proxyUrl) {
       args.push('--proxy', proxyUrl);
       args.push('--extractor-args', 'youtube:player_client=web,mweb');
+      // Use simple best format when going through proxy — avoids format negotiation failures
+      args.push('--format', 'best[ext=mp4]/best');
+    } else {
+      // More specific format when not using proxy
+      args.push(
+        '--format',
+        'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      );
     }
 
     args.push(...this.getCookiesArgs());

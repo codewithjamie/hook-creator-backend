@@ -398,8 +398,8 @@ export class VideoDownloaderService {
   private buildArgs(url: string, outputPath: string, useProxy = true): string[] {
     const args = [
       '--no-playlist',
-      // 480p max — half the bandwidth of 720p, still good for hook clips
-      '--format', 'bv*[height<=480]+ba/b[height<=480]/bv*+ba/b',
+      // Flexible format: try 480p first, fall back to any available format
+      '--format', 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
       '--output', outputPath,
       '--no-warnings',

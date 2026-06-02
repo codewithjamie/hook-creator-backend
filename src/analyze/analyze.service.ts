@@ -827,11 +827,58 @@ export class AnalyzeService {
   }
 
   // ── Sequential clip processor (memory-safe) ────────────────────────────────
+  // private async processHooksSequentially(
+  //   hooks: HookCandidate[],
+  //   videoPath: string,
+  //   recordId: string,
+  //   mode: 'merge' | 'hook-only',
+  // ): Promise<Array<HookCandidate & { clip: { url: string } | null }>> {
+  //   const results: Array<HookCandidate & { clip: { url: string } | null }> = [];
+
+  //   for (let i = 0; i < hooks.length; i++) {
+  //     const hook = hooks[i];
+  //     this.logger.log(
+  //       `Step 5.${i + 1}: Extracting clip | rank=${hook.rank} | ${hook.startTime}s→${hook.endTime}s`,
+  //     );
+
+  //     let clipPath: string | null = null;
+  //     let processedPath: string | null = null;
+
+  //     try {
+  //       clipPath = await this.ffmpeg.extractClip(videoPath, hook.startTime, hook.endTime);
+
+  //       if (mode === 'merge') {
+  //         processedPath = await this.ffmpeg.mergeWithCrossfade(clipPath, videoPath);
+  //       } else {
+  //         processedPath = await this.ffmpeg.extractHookOnly(clipPath);
+  //       }
+
+  //       const publicId = mode === 'merge'
+  //         ? `hook-${recordId}-rank${hook.rank}`
+  //         : `hook-only-${recordId}-rank${hook.rank}`;
+
+  //       const clipUrl = await this.cloudinary.uploadVideo(processedPath, publicId);
+  //       this.logger.log(`Step 5.${i + 1}: ✓ rank=${hook.rank} uploaded | url=${clipUrl}`);
+  //       results.push({ ...hook, clip: { url: clipUrl } });
+  //     } catch (err) {
+  //       this.logger.warn(
+  //         `Step 5.${i + 1}: ✗ rank=${hook.rank} failed | error=${err instanceof Error ? err.message : String(err)}`,
+  //       );
+  //       results.push({ ...hook, clip: null });
+  //     } finally {
+  //       const toClean = [clipPath, processedPath].filter(Boolean) as string[];
+  //       if (toClean.length) this.ffmpeg.cleanup(...toClean);
+  //     }
+  //   }
+
+  //   return results;
+  // }
   private async processHooksSequentially(
     hooks: HookCandidate[],
     videoPath: string,
     recordId: string,
     mode: 'merge' | 'hook-only',
+    sourceUrl?: string, // if provided, download segments instead of using full video
   ): Promise<Array<HookCandidate & { clip: { url: string } | null }>> {
     const results: Array<HookCandidate & { clip: { url: string } | null }> = [];
 
@@ -842,22 +889,34 @@ export class AnalyzeService {
       );
 
       let clipPath: string | null = null;
+      let segmentPath: string | null = null;
       let processedPath: string | null = null;
 
       try {
-        clipPath = await this.ffmpeg.extractClip(videoPath, hook.startTime, hook.endTime);
-
-        if (mode === 'merge') {
-          processedPath = await this.ffmpeg.mergeWithCrossfade(clipPath, videoPath);
+        if (mode === 'hook-only' && sourceUrl) {
+          // Download only the hook segment — saves proxy bandwidth
+          this.logger.log(`Step 5.${i + 1}: Downloading segment only (bandwidth saving)`);
+          segmentPath = await this.downloader.downloadSegment(
+            sourceUrl,
+            hook.startTime,
+            hook.endTime,
+          );
+          processedPath = await this.ffmpeg.extractHookOnly(segmentPath);
         } else {
-          processedPath = await this.ffmpeg.extractHookOnly(clipPath);
+          // Full video already downloaded — extract clip normally
+          clipPath = await this.ffmpeg.extractClip(videoPath, hook.startTime, hook.endTime);
+          if (mode === 'merge') {
+            processedPath = await this.ffmpeg.mergeWithCrossfade(clipPath, videoPath);
+          } else {
+            processedPath = await this.ffmpeg.extractHookOnly(clipPath);
+          }
         }
 
         const publicId = mode === 'merge'
           ? `hook-${recordId}-rank${hook.rank}`
           : `hook-only-${recordId}-rank${hook.rank}`;
 
-        const clipUrl = await this.cloudinary.uploadVideo(processedPath, publicId);
+        const clipUrl = await this.cloudinary.uploadVideo(processedPath!, publicId);
         this.logger.log(`Step 5.${i + 1}: ✓ rank=${hook.rank} uploaded | url=${clipUrl}`);
         results.push({ ...hook, clip: { url: clipUrl } });
       } catch (err) {
@@ -866,7 +925,7 @@ export class AnalyzeService {
         );
         results.push({ ...hook, clip: null });
       } finally {
-        const toClean = [clipPath, processedPath].filter(Boolean) as string[];
+        const toClean = [clipPath, segmentPath, processedPath].filter(Boolean) as string[];
         if (toClean.length) this.ffmpeg.cleanup(...toClean);
       }
     }
@@ -1342,6 +1401,160 @@ export class AnalyzeService {
     }
   }
 
+  // async hookOnly(
+  //   userId: string,
+  //   userEmail: string,
+  //   dto: HookOnlyDto,
+  // ): Promise<AnalysisResponse> {
+  //   const { video_url } = dto;
+
+  //   const detected = this.platform.detect(video_url);
+  //   if (!detected.supported) {
+  //     throw new BadRequestException('Unsupported platform.');
+  //   }
+
+  //   this.logger.log(
+  //     `Step 0: Hook-only request | user=${userEmail} | platform=${detected.platform} | url=${video_url}`,
+  //   );
+
+  //   const creditsRemaining = await this.credits.spendCredits(
+  //     userId,
+  //     COST_URL_ANALYZE,
+  //     `Hook-only analysis: ${video_url}`,
+  //   );
+  //   this.logger.log(
+  //     `Step 1: Credit deducted | user=${userEmail} | spent=${COST_URL_ANALYZE} | remaining=${creditsRemaining}`,
+  //   );
+
+  //   const record = await this.analyses.save(
+  //     this.analyses.create({
+  //       userId,
+  //       sourceUrl: video_url,
+  //       platform: detected.platform as AnalysisPlatform,
+  //       status: 'processing',
+  //       creditsUsed: COST_URL_ANALYZE,
+  //     }),
+  //   );
+
+  //   let videoPath: string | null = null;
+
+  //   try {
+  //     // ── Step 2: Transcript ─────────────────────────────────────────────────
+  //     this.logger.log(`Step 2: Fetching transcript`);
+  //     const videoId = video_url.match(YOUTUBE_ID_RE)?.[1];
+  //     let transcriptResult = videoId
+  //       ? await this.transcript.fromYoutube(videoId)
+  //       : null;
+
+  //     if (!transcriptResult) {
+  //       this.logger.log(`Step 2: Falling back to Whisper`);
+  //       videoPath = await this.downloader.download(video_url);
+  //       transcriptResult = await this.transcript.fromWhisper(videoPath);
+  //     }
+
+  //     // const { segments, source } = transcriptResult;
+  //     // if (!segments?.length) {
+  //     //   throw new InternalServerErrorException('No transcript found in this video.');
+  //     // }
+
+  //     const { segments: rawSegments, source } = transcriptResult;
+  //     let segments = rawSegments;
+
+  //     if (!segments?.length) {
+  //       this.logger.warn(`No transcript — using duration-based fallback`);
+  //       const duration = await this.ffmpeg.getVideoDuration(videoPath!);
+  //       if (duration < 5) {
+  //         throw new InternalServerErrorException('Video is too short to extract hooks from.');
+  //       }
+  //       segments = this.transcript.generateDurationBasedSegments(duration, this.minDuration);
+  //       this.logger.log(`Duration-based fallback: ${segments.length} synthetic segments`);
+  //     }
+
+  //     this.logger.log(`Step 2: Transcript ready | source=${source} | segments=${segments.length}`);
+
+  //     // ── Step 3: Score hooks ────────────────────────────────────────────────
+  //     const minDur = dto.min_hook_duration ?? this.minDuration;
+  //     const maxDur = dto.max_hook_duration ?? this.maxDuration;
+
+  //     this.logger.log(`Step 3: Scoring hooks via Claude | duration=${minDur}–${maxDur}s`);
+  //     const { hooks } = await this.hookScoring.selectTopHooks(segments, minDur, maxDur, source);
+
+  //     if (!hooks?.length) {
+  //       throw new InternalServerErrorException('Claude could not identify any hooks.');
+  //     }
+
+  //     const topHooks = hooks.slice(0, MAX_HOOKS_HOOK_ONLY);
+  //     const best = topHooks[0];
+  //     this.logger.log(
+  //       `Step 3: Best hook | score=${best.hookScore} (${best.hookScoreLabel}) | ${best.startTime}s→${best.endTime}s`,
+  //     );
+
+  //     // ── Step 4: Download video ─────────────────────────────────────────────
+  //     if (!videoPath) {
+  //       this.logger.log(`Step 4: Downloading video`);
+  //       videoPath = await this.downloader.download(video_url);
+  //       this.logger.log(`Step 4: Download complete`);
+  //     } else {
+  //       this.logger.log(`Step 4: Video already downloaded`);
+  //     }
+
+  //     // ---- Step 4b ---------------------------------------
+  //     const { durationSeconds } = await this.deductDurationCredits(
+  //       userId, userEmail, videoPath, `hook-only ${video_url}`, record.id,
+  //     );
+
+  //     // ── Step 5: Extract clips sequentially ────────────────────────────────
+  //     this.logger.log(`Step 5: Extracting hook-only clips for top ${topHooks.length} hooks (sequential)`);
+  //     const processedHooks = await this.processHooksSequentially(
+  //       topHooks,
+  //       videoPath,
+  //       record.id,
+  //       'hook-only',
+  //     );
+
+  //     const bestHook = processedHooks[0];
+  //     const bestClipUrl = (bestHook.clip as { url: string } | null)?.url ?? null;
+
+  //     if (!bestClipUrl) {
+  //       throw new InternalServerErrorException('Failed to generate hook clip. Please try again.');
+  //     }
+
+  //     const videoTitle = await this.platform.fetchVideoTitle(video_url, detected.platform);
+
+  //     await this.analyses.update(record.id, {
+  //       status: 'complete',
+  //       clipUrl: bestClipUrl,
+  //       startTime: bestHook.startTime,
+  //       endTime: bestHook.endTime,
+  //       bridgeSentence: bestHook.bridgeSentence,
+  //       whySelected: bestHook.whySelected,
+  //       hookScore: bestHook.hookScore,
+  //       transcriptSource: source,
+  //       fullHooks: processedHooks,
+  //       videoTitle: videoTitle ?? 'Untitled',
+  //       videoDurationSeconds: durationSeconds,  
+  //     });
+
+  //     this.logger.log(
+  //       `✅ Hook-only done | user=${userEmail} | id=${record.id} | score=${bestHook.hookScore} | clip=${bestClipUrl}`,
+  //     );
+
+  //     const updated = await this.analyses.findOneOrFail({ where: { id: record.id } });
+  //     return this.toResponse(updated, creditsRemaining);
+  //   } catch (err) {
+  //     const message = err instanceof Error ? err.message : String(err);
+  //     this.logger.error(`✗ Hook-only failed | user=${userEmail} | id=${record.id} | error=${message}`);
+  //     await this.analyses.update(record.id, { status: 'failed', errorMessage: message });
+  //     await this.refundCredit(userId, userEmail, COST_URL_ANALYZE, record.id);
+  //     throw err;
+  //   } finally {
+  //     if (videoPath) {
+  //       this.ffmpeg.cleanup(videoPath);
+  //       this.logger.log(`Cleanup: removed video temp file`);
+  //     }
+  //   }
+  // }
+
   async hookOnly(
     userId: string,
     userEmail: string,
@@ -1377,7 +1590,10 @@ export class AnalyzeService {
       }),
     );
 
+    // videoPath only set if we had to download for Whisper fallback
     let videoPath: string | null = null;
+    // useSegmentMode = true means download per-hook segments instead of full video
+    let useSegmentMode = false;
 
     try {
       // ── Step 2: Transcript ─────────────────────────────────────────────────
@@ -1388,21 +1604,27 @@ export class AnalyzeService {
         : null;
 
       if (!transcriptResult) {
-        this.logger.log(`Step 2: Falling back to Whisper`);
+        // Must download full video for Whisper — can't use segment mode here
+        this.logger.log(`Step 2: Falling back to Whisper — downloading full video`);
         videoPath = await this.downloader.download(video_url);
         transcriptResult = await this.transcript.fromWhisper(videoPath);
+      } else {
+        // Transcript came from Supadata/captions — no full video needed yet
+        // We'll use segment mode in Step 5
+        useSegmentMode = true;
+        this.logger.log(`Step 2: Transcript from captions — segment mode enabled (saves bandwidth)`);
       }
-
-      // const { segments, source } = transcriptResult;
-      // if (!segments?.length) {
-      //   throw new InternalServerErrorException('No transcript found in this video.');
-      // }
 
       const { segments: rawSegments, source } = transcriptResult;
       let segments = rawSegments;
 
       if (!segments?.length) {
         this.logger.warn(`No transcript — using duration-based fallback`);
+        if (!videoPath) {
+          // Need video to get duration — download it now
+          videoPath = await this.downloader.download(video_url);
+          useSegmentMode = false;
+        }
         const duration = await this.ffmpeg.getVideoDuration(videoPath!);
         if (duration < 5) {
           throw new InternalServerErrorException('Video is too short to extract hooks from.');
@@ -1430,27 +1652,31 @@ export class AnalyzeService {
         `Step 3: Best hook | score=${best.hookScore} (${best.hookScoreLabel}) | ${best.startTime}s→${best.endTime}s`,
       );
 
-      // ── Step 4: Download video ─────────────────────────────────────────────
-      if (!videoPath) {
-        this.logger.log(`Step 4: Downloading video`);
-        videoPath = await this.downloader.download(video_url);
-        this.logger.log(`Step 4: Download complete`);
+      // ── Step 4: Duration credits ───────────────────────────────────────────
+      // Only deduct duration credits if we have the full video
+      // In segment mode we skip this (no full video downloaded)
+      let durationSeconds = 0;
+      if (videoPath) {
+        const dur = await this.deductDurationCredits(
+          userId, userEmail, videoPath, `hook-only ${video_url}`, record.id,
+        );
+        durationSeconds = dur.durationSeconds;
+        this.logger.log(`Step 4: Full video available | duration=${durationSeconds.toFixed(1)}s`);
       } else {
-        this.logger.log(`Step 4: Video already downloaded`);
+        this.logger.log(`Step 4: Segment mode — skipping full video download`);
       }
 
-      // ---- Step 4b ---------------------------------------
-      const { durationSeconds } = await this.deductDurationCredits(
-        userId, userEmail, videoPath, `hook-only ${video_url}`, record.id,
+      // ── Step 5: Extract clips ──────────────────────────────────────────────
+      this.logger.log(
+        `Step 5: Extracting hook-only clips for top ${topHooks.length} hooks | mode=${useSegmentMode ? 'segment' : 'full-video'}`,
       );
 
-      // ── Step 5: Extract clips sequentially ────────────────────────────────
-      this.logger.log(`Step 5: Extracting hook-only clips for top ${topHooks.length} hooks (sequential)`);
       const processedHooks = await this.processHooksSequentially(
         topHooks,
-        videoPath,
+        videoPath ?? '',                        // empty if segment mode
         record.id,
         'hook-only',
+        useSegmentMode ? video_url : undefined, // pass URL for segment downloading
       );
 
       const bestHook = processedHooks[0];
@@ -1473,7 +1699,7 @@ export class AnalyzeService {
         transcriptSource: source,
         fullHooks: processedHooks,
         videoTitle: videoTitle ?? 'Untitled',
-        videoDurationSeconds: durationSeconds,  
+        videoDurationSeconds: durationSeconds,
       });
 
       this.logger.log(
@@ -1495,6 +1721,8 @@ export class AnalyzeService {
       }
     }
   }
+
+  
 
   async mergeHook(
     userId: string,

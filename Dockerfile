@@ -52,6 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     # Required for some ffmpeg operations
     libgomp1 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Install yt-dlp (latest stable) ───────────────────────────────────────────

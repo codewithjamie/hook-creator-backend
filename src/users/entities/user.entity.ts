@@ -10,6 +10,8 @@ import { Exclude } from 'class-transformer';
 import { AnalysisEntity } from '../../analyze/entities/analysis.entity';
 import { CreditTransactionEntity } from '../../credits/entities/credit-transaction.entity';
 
+export type UserTier = 'free' | 'creator' | 'pro' | 'agency';
+
 @Entity('users')
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -33,6 +35,9 @@ export class UserEntity {
 
   @Column({ default: 0 })
   credits: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'free' })
+  tier: UserTier;
 
   @Column({ nullable: true, type: 'timestamptz' })
   @Exclude()

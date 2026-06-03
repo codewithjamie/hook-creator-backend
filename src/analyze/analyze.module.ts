@@ -17,6 +17,8 @@ import { FfmpegService } from './ffmpeg.service';
 import { CloudinaryService } from './cloudinary.service';
 import { TranscriptService } from './transcript.service';
 import { HookScoringService } from './hook-scoring.service';
+import { TierGuardService } from './tier-guard.service';
+import { WatermarkService } from './watermark.service';
 
 @Module({
   imports: [
@@ -54,7 +56,9 @@ import { HookScoringService } from './hook-scoring.service';
     CloudinaryService,
     TranscriptService,
     HookScoringService,
+    TierGuardService,  
+    WatermarkService,  
   ],
-  exports: [AnalyzeService],
+  exports: [AnalyzeService, TierGuardService, WatermarkService],
 })
 export class AnalyzeModule {}

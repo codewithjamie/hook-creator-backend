@@ -22,30 +22,26 @@ export class WatermarkService {
 
     this.logger.log(`Adding watermark → ${outputPath}`);
 
-    // Draws "OpenEdge" text in bottom-right corner, semi-transparent white
     await this.runCommand(this.ffmpegPath, [
-      '-y',
-      '-i', inputPath,
-      '-vf',
-      [
-        // Semi-transparent dark box behind text
-        `drawbox=x=iw-220:y=ih-50:w=210:h=40:color=black@0.4:t=fill`,
-        // OpenEdge text
-        `drawtext=text='OpenEdge':` +
-          `fontcolor=white@0.85:` +
-          `fontsize=22:` +
-          `x=iw-210:` +
-          `y=ih-38:` +
-          `fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`,
-      ].join(','),
-      '-codec:a', 'copy',
-      '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-      outputPath,
+        '-y',
+        '-i', inputPath,
+        // Generate a solid color rectangle as second input
+        '-f', 'lavfi',
+        '-i', 'color=c=black@0.5:size=160x34:rate=30',
+        '-filter_complex',
+        // Overlay the dark box at bottom-right corner of video
+        `[1:v]format=rgba,colorchannelmixer=aa=0.55[box];` +
+        `[0:v][box]overlay=x=W-w-10:y=H-h-10:shortest=1[vout]`,
+        '-map', '[vout]',
+        '-map', '0:a?',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+        '-c:a', 'copy',
+        outputPath,
     ]);
 
     this.logger.log(`Watermark applied → ${outputPath}`);
     return outputPath;
-  }
+    }
 
   private runCommand(binary: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {

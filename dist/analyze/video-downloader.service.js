@@ -27,14 +27,16 @@ let VideoDownloaderService = VideoDownloaderService_1 = class VideoDownloaderSer
         this.writeCookies();
     }
     writeCookies() {
-        const content = this.config.get('YOUTUBE_COOKIES');
-        if (content) {
-            fs.writeFileSync(this.cookiesPath, content, 'utf8');
-            this.logger.log('YouTube cookies written to disk');
+        const b64 = this.config.get('YOUTUBE_COOKIES_B64');
+        this.logger.log(`YOUTUBE_COOKIES_B64 present: ${!!b64} | length: ${b64?.length ?? 0}`);
+        if (b64) {
+            const decoded = Buffer.from(b64, 'base64').toString('utf8');
+            this.logger.log(`Decoded cookies preview: ${decoded.substring(0, 50)}`);
+            fs.writeFileSync(this.cookiesPath, decoded, 'utf8');
+            this.logger.log('YouTube cookies written from base64 env var');
+            return;
         }
-        else {
-            this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
-        }
+        this.logger.warn('YOUTUBE_COOKIES not set — YouTube bot-detection may trigger');
     }
     get hasCookies() {
         return fs.existsSync(this.cookiesPath);
@@ -145,7 +147,8 @@ let VideoDownloaderService = VideoDownloaderService_1 = class VideoDownloaderSer
     buildArgs(url, outputPath) {
         const args = [
             '--no-playlist',
-            '--format', 'best[height<=720][ext=mp4]/best[height<=720]/best',
+            '--format', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
+            '--merge-output-format', 'mp4',
             '--output', outputPath,
             '--no-warnings',
             '--socket-timeout', '30',
